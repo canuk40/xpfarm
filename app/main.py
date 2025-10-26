@@ -25,8 +25,9 @@ SCOPE_TYPES = ["CIDR", "Domain", "Wildcard", "IP Address", "URL", "API", "Other 
 
 from sqlalchemy import text
 
+from sqlalchemy import text
+
 def ensure_schema(db: Session):
-    # Add columns to scope_items if missing
     cols = {r[1] for r in db.execute(text("PRAGMA table_info(scope_items)")).fetchall()}
     to_add = []
     if "verified" not in cols:
@@ -39,6 +40,17 @@ def ensure_schema(db: Session):
         db.execute(text(stmt))
     if to_add:
         db.commit()
+
+    # Unique index on normalized key to block dup inserts (case-insensitive)
+    try:
+        db.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_scope_norm "
+            "ON scope_items (target_id, stype, lower(value))"
+        ))
+        db.commit()
+    except Exception:
+        # If duplicates still exist, the index creation will fail; initialise.py will clean them.
+        pass
 
 def _split_tokens(raw: str):
     for chunk in raw.replace(",", "\n").splitlines():
