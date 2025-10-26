@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  ctfbox:
+    build: .
+    container_name: ctf-microserver
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_PATH=/data/ctf.db
+    volumes:
+      - ./modules:/app/modules:ro
+      - ./data:/data            # <-- host dir bind-mounted
+    restart: unless-stopped
+

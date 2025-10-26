@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+{% block content %}
+<section>
+  <h1>Modules</h1>
+  <p class="muted">Drag cards to set priority (top = runs earlier on startup). “Enabled” controls inclusion; “Run Now” executes immediately.</p>
+
+  <div id="modulesGrid" class="grid">
+    {% for m in modules %}
+    <div class="card module-card" draggable="true" data-id="{{ m.id }}">
+      <div class="card-head" style="width:100%">
+        <div>
+          <h2>#{{ loop.index }} — {{ m.name }}</h2>
+          <p class="muted">{{ m.path }}</p>
+        </div>
+        <div class="badges" data-badges>
+          {% if m.enabled %}<span class="badge ok" data-enabled>enabled</span>{% else %}<span class="badge no" data-enabled>disabled</span>{% endif %}
+          {% if m.last_run_status and m.last_run_status != 'never' %}
+            <span class="badge {{ 'ok' if m.last_run_status=='ok' else 'no' }}" data-status>{{ m.last_run_status }}</span>
+          {% else %}
+            <span class="badge" data-status>never</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if m.description %}<p>{{ m.description }}</p>{% endif %}
+
+      <div class="actions">
+        <button class="btn" data-toggle="{{ m.id }}">Toggle Enable</button>
+        <button class="btn primary" data-run="{{ m.id }}">Run Now</button>
+      </div>
+
+      <!-- Thin progress bar appears when running -->
+      <div class="run-progress" data-progress="{{ m.id }}"><div class="bar"></div></div>
+
+      <details class="log" data-mid="{{ m.id }}">
+        <summary>Last run</summary>
+        <div>
+          <div class="muted">at <span data-run-at>{{ m.last_run_at or 'never' }}</span></div>
+          <div class="codeblock">
+            <button class="copy-btn" data-copy="{{ m.id }}">Copy</button>
+            <pre id="log-{{ m.id }}">{{ m.last_run_output or '' }}</pre>
+          </div>
+        </div>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+  // --- Helpers
+  const qs  = (sel, el=document) => el.querySelector(sel);
+  const qsa = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+
+  function setRunning(card, isRunning){
+    const id = card.dataset.id;
+    const prog = qs(`[data-progress="${id}"]`);
+    const runBtn = card.querySelector(`[data-run="${id}"]`);
+    const toggleBtn = card.querySelector(`[data-toggle="${id}"]`);
+    if(prog) prog.style.display = isRunning ? 'block' : 'none';
+    if(runBtn)   runBtn.disabled   = isRunning;
+    if(toggleBtn) toggleBtn.disabled = isRunning;
+    card.style.opacity = isRunning ? '0.85' : '';
+  }
+
+  function updateStatusBadges(card, enabled, status){
+    const enabledEl = card.querySelector('[data-enabled]');
+    if(enabledEl){
+      enabledEl.textContent = enabled ? 'enabled' : 'disabled';
+      enabledEl.className = 'badge ' + (enabled ? 'ok' : 'no');
+    }
+    const statusEl = card.querySelector('[data-status]');
+    if(statusEl){
+      statusEl.textContent = status || 'never';
+      statusEl.className = 'badge ' + (status === 'ok' ? 'ok' : (status === 'error' ? 'no' : ''));
+    }
+  }
+
+  function formatDate(d){
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return d || 'never';
+      return dt.toLocaleString();
+    } catch(e){ return d || 'never'; }
+  }
+
+  // --- Toggle Enable (no full reload)
+  qsa('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-toggle');
+      const card = btn.closest('.module-card');
+      try{
+        setRunning(card, true);
+        const r = await fetch(`/api/modules/${id}/toggle`, {method:'POST'});
+        const data = await r.json();
+        updateStatusBadges(card, data.enabled, qs('[data-status]', card)?.textContent || 'never');
+      } catch(e){
+        console.error(e);
+      } finally {
+        setRunning(card, false);
+      }
+    });
+  });
+
+  // --- Run Now with progress and live update (no full reload)
+  qsa('[data-run]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-run');
+      const card = btn.closest('.module-card');
+      const log = qs(`#log-${id}`);
+      const runAt = qs('[data-run-at]', card);
+      try{
+        setRunning(card, true);
+        const r = await fetch(`/api/modules/${id}/run`, {method:'POST'});
+        const data = await r.json();
+        if(log) log.textContent = data.output || '';
+        if(runAt) runAt.textContent = new Date().toLocaleString();
+        updateStatusBadges(card, qs('[data-enabled]', card)?.textContent === 'enabled', data.ok ? 'ok' : 'error');
+        // Expand the details to show fresh output
+        const det = qs('details.log', card);
+        if(det) det.open = true;
+        // Persist open state like before
+        try { localStorage.setItem(`ctf_module_log_open_${id}`, '1'); } catch(e){}
+      } catch(e){
+        console.error(e);
+      } finally {
+        setRunning(card, false);
+      }
+    });
+  });
+
+  // --- Copy button for codeblock
+  qsa('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-copy');
+      const pre = qs(`#log-${id}`);
+      if(!pre) return;
+      try {
+        await navigator.clipboard.writeText(pre.textContent || '');
+        btn.textContent = 'Copied';
+        setTimeout(()=> btn.textContent = 'Copy', 1200);
+      } catch(e) {
+        console.error(e);
+      }
+    });
+  });
+
+  // --- Drag-and-drop ordering with auto-persist (unchanged)
+  (function(){
+    const grid = document.getElementById('modulesGrid');
+    let draggingEl = null;
+
+    function idsInOrder(){
+      return Array.from(grid.querySelectorAll('.module-card')).map(el => parseInt(el.dataset.id, 10));
+    }
+
+    grid.addEventListener('dragstart', (e) => {
+      const card = e.target.closest('.module-card');
+      if(!card) return;
+      draggingEl = card;
+      e.dataTransfer.effectAllowed = 'move';
+      card.style.opacity = '0.5';
+    });
+
+    grid.addEventListener('dragend', () => {
+      if(draggingEl){ draggingEl.style.opacity = ''; draggingEl = null; }
+      const order = idsInOrder();
+      fetch('/api/modules/reorder', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(order)
+      }).then(()=>location.reload());
+    });
+
+    grid.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const afterEl = getDragAfterElement(grid, e.clientY);
+      if(afterEl == null) {
+        grid.appendChild(draggingEl);
+      } else {
+        grid.insertBefore(draggingEl, afterEl);
+      }
+    });
+
+    function getDragAfterElement(container, y){
+      const cards = [...container.querySelectorAll('.module-card:not([style*="opacity"])')];
+      let closest = {offset: Number.NEGATIVE_INFINITY, element: null};
+      for (const child of cards){
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+          closest = {offset, element: child};
+        }
+      }
+      return closest.element;
+    }
+  })();
+
+  // --- Persist open/closed state of "Last run"
+  (function(){
+    const KEY = (id) => `ctf_module_log_open_${id}`;
+    const detailsList = document.querySelectorAll('details.log[data-mid]');
+    for (const d of detailsList){
+      const id = d.dataset.mid;
+      try { const saved = localStorage.getItem(KEY(id)); if (saved === '1') d.open = true; } catch(e){}
+      d.addEventListener('toggle', () => {
+        try { localStorage.setItem(KEY(id), d.open ? '1' : '0'); } catch(e){}
+      });
+    }
+  })();
+</script>
+{% endblock %}
+

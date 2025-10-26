@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CTF Microserver</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="dark">
+    <header class="topbar">
+      <div class="brand">CTF Microserver</div>
+      <nav>
+        <a href="/" class="btn">Dashboard</a>
+        <a href="/modules" class="btn">Modules</a>
+        <a href="/scope" class="btn">Scope</a>
+        <a href="/config" class="btn">Config</a>
+      </nav>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>
+
