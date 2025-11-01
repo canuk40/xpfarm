@@ -10,8 +10,10 @@ from .db import Base, engine, get_db
 from .models import Module as ModuleModel, Target, ScopeItem, ConfigKV, ModuleMetric
 from . import module_loader
 from .startup import run_startup_sequence
+from sqlalchemy import text, inspect
+from sqlalchemy.engine import Row
 
-app = FastAPI(title="CTF Microserver", version="0.4.0")
+app = FastAPI(title="xpfarm", version="0.4.0")
 
 Base.metadata.create_all(bind=engine)
 
@@ -341,4 +343,111 @@ def config_set(key: str = Form(...), value: str = Form(""), db: Session = Depend
         db.add(kv)
     db.commit()
     return RedirectResponse(url="/config", status_code=303)
+# --- Results Page (generic over results_* tables) ---
+
+from fastapi import APIRouter
+from fastapi import Request, Form
+from fastapi.responses import RedirectResponse
+
+router = APIRouter()
+
+RESULTS_PREFIX = "results_"
+
+def _list_result_tables(db: Session) -> list[str]:
+    insp = inspect(engine)
+    names = [t for t in insp.get_table_names() if t.startswith(RESULTS_PREFIX)]
+    # normalize ordering
+    return sorted(names)
+
+def _module_slug_from_table(t: str) -> str:
+    # results_dns -> dns ; results_nmap_http -> nmap_http
+    return t[len(RESULTS_PREFIX):]
+
+def _table_from_module_slug(slug: str) -> str:
+    return f"{RESULTS_PREFIX}{slug}"
+
+def _list_modules_from_tables(db: Session) -> list[str]:
+    return [_module_slug_from_table(t) for t in _list_result_tables(db)]
+
+def _list_batches(db: Session, module_slug: str) -> list[dict]:
+    """
+    Return [{batch_id, created_at}] where created_at is the first row’s created_at for the batch (if present).
+    """
+    table = _table_from_module_slug(module_slug)
+    # We don’t know exact schema types, so use TEXT and IS NULL tolerances.
+    q = text(f"""
+        SELECT batch_id,
+               MIN(created_at) AS created_at
+          FROM {table}
+         GROUP BY batch_id
+         ORDER BY COALESCE(MIN(created_at), '') DESC, batch_id DESC
+    """)
+    rows = db.execute(q).fetchall()
+    return [{"batch_id": r[0], "created_at": r[1]} for r in rows]
+
+def _fetch_rows_for_batch(db: Session, module_slug: str, batch_id: str, limit: int = 2000) -> tuple[list[str], list[dict]]:
+    table = _table_from_module_slug(module_slug)
+    # Grab column names
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns(table)]
+    # Pull rows for this batch
+    q = text(f"SELECT * FROM {table} WHERE batch_id = :b LIMIT :lim")
+    rows = db.execute(q, {"b": batch_id, "lim": limit}).mappings().all()
+    # Convert MappingResult to plain dict
+    data = [dict(r) for r in rows]
+    return cols, data
+
+@app.get("/results", response_class=HTMLResponse)
+def results_page(request: Request,
+                 module: str | None = None,
+                 batch_id: str | None = None,
+                 db: Session = Depends(get_db)):
+    modules = _list_modules_from_tables(db)
+    batches = []
+    rows = []
+    columns = []
+
+    selected_module = module if module in modules else None
+    selected_batch_id = None
+
+    if selected_module:
+        batches = _list_batches(db, selected_module)
+        if batch_id and any(b["batch_id"] == batch_id for b in batches):
+            selected_batch_id = batch_id
+            columns, rows = _fetch_rows_for_batch(db, selected_module, selected_batch_id)
+
+    return templates.TemplateResponse(
+        "results.html",
+        {
+            "request": request,
+            "modules": modules,
+            "selected_module": selected_module,
+            "batches": batches,
+            "selected_batch_id": selected_batch_id,
+            "columns": columns,
+            "rows": rows,
+        },
+    )
+
+@app.post("/results/delete")
+def results_delete(module: str = Form(...),
+                   batch_id: str = Form(...),
+                   db: Session = Depends(get_db)):
+    # Safety: only allow deletes against prefixed tables we can see
+    modules = _list_modules_from_tables(db)
+    if module not in modules:
+        raise HTTPException(status_code=400, detail="Invalid module")
+
+    table = _table_from_module_slug(module)
+    # Delete the batch
+    q = text(f"DELETE FROM {table} WHERE batch_id = :b")
+    db.execute(q, {"b": batch_id})
+    db.commit()
+
+    # Redirect back to results view for the same module
+    url = f"/results?module={module}"
+    return RedirectResponse(url=url, status_code=303)
+
+# Mount router if you prefer separate router; otherwise skip this.
+# app.include_router(router)
 
