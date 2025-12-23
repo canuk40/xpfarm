@@ -1,33 +1,6 @@
-# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.sqlite3
-*.log
-
-# Virtual environments
-.env
-.venv
-env/
-venv/
-
-# Docker
-data/
-!data/.keep
-exports/
-!exports/.keep
-
-# SQLite DB files (anywhere)
+*.py[cod]
+*$py.class
 *.db
-
-# System cruft
-.DS_Store
-Thumbs.db
-
-# IDEs / editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
+tools/
+bin/
