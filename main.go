@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 
@@ -33,9 +32,10 @@ ____  ________________________
  ╱     ╲  │    │    │     ╲   ╱ __ ╲│  │ ╲╱  Y Y  ╲
 ╱___╱╲  ╲ │____│    ╲___  ╱  (____  ╱__│  │__│_│  ╱
       ╲_╱               ╲╱        ╲╱            ╲╱ 
+                                 github.com/A3-N
+                                  ` + "\x1b[3m" + `Death to TLS` + "\x1b[0m" + `
 `
 	utils.PrintGradient(banner)
-	fmt.Println("Death to TLS")
 
 	// 0. Environment Setup
 	// utils.EnsureGoBinPath() - REMOVED per user request

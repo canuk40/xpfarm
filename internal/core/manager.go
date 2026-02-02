@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"strings"
@@ -306,8 +307,75 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 
 	utils.LogSuccess("[Scanner] Stage 1 Completed for %s", parsed.Value)
 
-	// Future Stages: Network, Web, Vuln...
-	// For now, we stop here as requested ("Stage 1 you suggested sounds good... get that working")
+	// STAGE 2: NETWORK SCANNING (Naabu)
+	// Goal: Scan ports for the Main Target AND all Discovered Subdomains.
+	utils.LogInfo("[Scanner] Starting Stage 2: Network Scanning (Naabu)...")
+
+	// Collect targets to scan
+	// 1. Main Target
+	targetsToScan := []database.Target{}
+	// Check if main target is alive or just scan it? Naabu checks liveness.
+	targetsToScan = append(targetsToScan, targetObj)
+
+	// 2. Subdomains (reload to get latest IDs)
+	var freshTarget database.Target
+	if err := db.Preload("Subdomains").First(&freshTarget, targetObj.ID).Error; err == nil {
+		targetsToScan = append(targetsToScan, freshTarget.Subdomains...)
+	}
+
+	naabuMod := modules.Get("naabu")
+	if naabuMod != nil && naabuMod.CheckInstalled() {
+		for _, t := range targetsToScan {
+			// Skip if obviously invalid (though naabu handles it)
+			if t.Value == "" {
+				continue
+			}
+
+			utils.LogInfo("[Scanner] [Naabu] Scanning %s...", t.Value)
+			output, err := naabuMod.Run(t.Value)
+			recordResult(db, t.ID, "naabu", output)
+
+			if err == nil && output != "" {
+				// Parse JSON Output
+				// Format: {"ip":"...", "host":"...", "port":80, ...}
+				lines := strings.Split(output, "\n")
+				portsFound := 0
+
+				for _, line := range lines {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+
+					var nResult struct {
+						IP   string `json:"ip"`
+						Port int    `json:"port"`
+						Host string `json:"host"`
+					}
+					if err := json.Unmarshal([]byte(line), &nResult); err == nil {
+						// Save Port
+						// Protocol/Service are not in basic Naabu JSON?
+						// Naabu usually gives just port.
+						// We can infer protocol (tcp) and service (basic map) or leave empty for now.
+
+						db.Create(&database.Port{
+							TargetID: t.ID,
+							Port:     nResult.Port,
+							Protocol: "tcp",
+							Service:  "unknown", // Naabu doesn't detect service version by default?
+						})
+						portsFound++
+					}
+				}
+				if portsFound > 0 {
+					utils.LogSuccess("[Scanner] [Naabu] Found %d open ports on %s", portsFound, t.Value)
+				}
+			}
+		}
+	} else {
+		utils.LogWarning("[Scanner] Naabu tool not installed/found. Skipping Stage 2.")
+	}
+
+	utils.LogSuccess("[Scanner] Stage 2 Completed for %s", parsed.Value)
 }
 
 func recordResult(db *gorm.DB, targetID uint, tool, output string) {
