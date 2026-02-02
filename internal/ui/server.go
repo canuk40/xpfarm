@@ -21,6 +21,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/render"
+	"gorm.io/gorm/clause"
 )
 
 //go:embed templates/* static/*
@@ -51,7 +52,7 @@ func StartServer(port string) error {
 		return err
 	}
 
-	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "modules.html", "settings.html", "target.html", "overlord.html"}
+	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html"}
 
 	for _, page := range pages {
 		pageContent, err := f.ReadFile("templates/" + page)
@@ -240,7 +241,27 @@ func StartServer(port string) error {
 	r.POST("/assets/delete", func(c *gin.Context) {
 		id := c.PostForm("id")
 		if id != "" {
-			database.GetDB().Unscoped().Delete(&database.Asset{}, id)
+			db := database.GetDB()
+			// Manually cascade delete targets
+			// 1. Get Target IDs
+			var targets []database.Target
+			db.Select("id").Where("asset_id = ?", id).Find(&targets)
+			var targetIDs []uint
+			for _, t := range targets {
+				targetIDs = append(targetIDs, t.ID)
+			}
+
+			if len(targetIDs) > 0 {
+				// 2. Delete Related Data for these targets
+				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.ScanResult{})
+				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.Port{})
+				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.WebAsset{})
+				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.Vulnerability{})
+				// 3. Delete Targets
+				db.Unscoped().Delete(&database.Target{}, targetIDs)
+			}
+			// 4. Delete Asset
+			db.Unscoped().Delete(&database.Asset{}, id)
 		}
 		c.Redirect(http.StatusFound, "/assets")
 	})
@@ -354,13 +375,22 @@ func StartServer(port string) error {
 
 			// Global Duplicate Check
 			var existing database.Target
-			// Use Find() with Limit(1) to check existence without triggering "record not found" log
+			// Use Find() to check existence
 			if db.Where("value = ?", tVal).Limit(1).Find(&existing).RowsAffected > 0 {
-				// Found existing
+				// Found existing target. Check if its Asset still exists.
 				var existingAsset database.Asset
-				db.First(&existingAsset, existing.AssetID)
-				report = append(report, ImportStatus{Target: tVal, Status: "warning", Detail: "Duplicate found in group: " + existingAsset.Name})
-				continue
+				if err := db.Find(&existingAsset, existing.AssetID).Error; err != nil || existingAsset.ID == 0 {
+					// Async/Orphaned Target case (Asset was hard deleted but Target wasn't?)
+					// Or just broken reference. Use Unscoped to be sure we find it if it exists.
+					// Actually, if we are here, it means Target exists. If Asset lookup fails, it's an orphan.
+
+					// We'll treat orphans as non-existent (delete them and allow import)
+					db.Unscoped().Delete(&existing)
+				} else {
+					// Asset exists, so it is a true duplicate
+					report = append(report, ImportStatus{Target: tVal, Status: "warning", Detail: "Duplicate found in group: " + existingAsset.Name})
+					continue
+				}
 			}
 
 			// Add New
@@ -463,10 +493,14 @@ func StartServer(port string) error {
 		if key != "" && value != "" {
 			var setting database.Setting
 			db := database.GetDB()
-			db.FirstOrCreate(&setting, database.Setting{Key: key})
+			// Robust Upsert using OnConflict to handle soft-deletes and updates atomically
+			setting.Key = key
 			setting.Value = value
 			setting.Description = desc
-			db.Save(&setting)
+			db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+			}).Create(&setting)
 
 			// Apply to current process env
 			os.Setenv(key, value)
@@ -488,10 +522,13 @@ func StartServer(port string) error {
 
 		for k, v := range settings {
 			var s database.Setting
-			db.FirstOrCreate(&s, database.Setting{Key: k})
+			s.Key = k
 			s.Value = v
 			s.Description = "Discord Configuration"
-			db.Save(&s)
+			db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+			}).Create(&s)
 			os.Setenv(k, v)
 		}
 
@@ -526,7 +563,7 @@ func StartServer(port string) error {
 			}
 		}
 
-		c.Redirect(http.StatusFound, "/settings")
+		c.Redirect(http.StatusFound, "/settings?tab=notifications")
 	})
 
 	r.POST("/settings/telegram", func(c *gin.Context) {
@@ -541,10 +578,13 @@ func StartServer(port string) error {
 
 		for k, v := range settings {
 			var s database.Setting
-			db.FirstOrCreate(&s, database.Setting{Key: k})
+			s.Key = k
 			s.Value = v
 			s.Description = "Telegram Configuration"
-			db.Save(&s)
+			db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+			}).Create(&s)
 			os.Setenv(k, v)
 		}
 
@@ -553,7 +593,39 @@ func StartServer(port string) error {
 		// For now, save requires restart for reliable effect, or we accept that it works on next boot.
 		// We could try to inject it into the closure if we refactored, but preventing complexity.
 
-		c.Redirect(http.StatusFound, "/settings")
+		c.Redirect(http.StatusFound, "/settings?tab=notifications")
+	})
+
+	r.POST("/settings/uncover", func(c *gin.Context) {
+		db := database.GetDB()
+		settings := map[string]string{
+			"SHODAN_API_KEY":     c.PostForm("shodan"),
+			"CENSYS_API_ID":      c.PostForm("censys_id"),
+			"CENSYS_API_SECRET":  c.PostForm("censys_secret"),
+			"FOFA_EMAIL":         c.PostForm("fofa_email"),
+			"FOFA_KEY":           c.PostForm("fofa_key"),
+			"QUAKE_TOKEN":        c.PostForm("quake"),
+			"HUNTER_API_KEY":     c.PostForm("hunter"),
+			"CRIMINALIP_API_KEY": c.PostForm("criminalip"),
+		}
+
+		for k, v := range settings {
+			var s database.Setting
+			s.Key = k
+			s.Value = v
+			s.Description = "Uncover Provider Key"
+			// Upsert to handle unique constraint + soft deletes
+			db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+			}).Create(&s)
+			if v != "" {
+				os.Setenv(k, v)
+			} else {
+				os.Unsetenv(k)
+			}
+		}
+		c.Redirect(http.StatusFound, "/settings?tab=env")
 	})
 
 	r.POST("/settings/delete", func(c *gin.Context) {
@@ -562,7 +634,7 @@ func StartServer(port string) error {
 			database.GetDB().Where("key = ?", key).Delete(&database.Setting{})
 			os.Unsetenv(key)
 		}
-		c.Redirect(http.StatusFound, "/settings")
+		c.Redirect(http.StatusFound, "/settings?tab=env")
 	})
 
 	r.POST("/target/update", func(c *gin.Context) {
@@ -592,7 +664,28 @@ func StartServer(port string) error {
 	r.POST("/target/delete", func(c *gin.Context) {
 		id := c.PostForm("id")
 		if id != "" {
-			database.GetDB().Unscoped().Delete(&database.Target{}, id)
+			db := database.GetDB()
+			// Cascade delete related data
+			// 1. Delete Subdomains (Recursive? Or just simple parent cascade?)
+			// If we delete a parent, we should delete children or unlink them?
+			// For strict cleanup, let's delete children too if they are just "subdomains".
+			var subIDs []uint
+			db.Model(&database.Target{}).Select("id").Where("parent_id = ?", id).Find(&subIDs)
+			if len(subIDs) > 0 {
+				// Delete sub-children data (simple 1-level depth for now)
+				db.Unscoped().Where("target_id IN ?", subIDs).Delete(&database.ScanResult{})
+				db.Unscoped().Where("target_id IN ?", subIDs).Delete(&database.Port{})
+				db.Unscoped().Delete(&database.Target{}, subIDs)
+			}
+
+			// 2. Delete this target's data
+			db.Unscoped().Where("target_id = ?", id).Delete(&database.ScanResult{})
+			db.Unscoped().Where("target_id = ?", id).Delete(&database.Port{})
+			db.Unscoped().Where("target_id = ?", id).Delete(&database.WebAsset{})
+			db.Unscoped().Where("target_id = ?", id).Delete(&database.Vulnerability{})
+
+			// 3. Delete Target
+			db.Unscoped().Delete(&database.Target{}, id)
 		}
 		ref := c.Request.Referer()
 		if ref != "" {
@@ -606,12 +699,19 @@ func StartServer(port string) error {
 	r.GET("/target/:id", func(c *gin.Context) {
 		id := c.Param("id")
 		var target database.Target
-		if err := database.GetDB().Preload("Results").First(&target, id).Error; err != nil {
+		// Preload everything for the details view
+		if err := database.GetDB().
+			Preload("Results").
+			Preload("Subdomains").
+			Preload("Ports").
+			Preload("WebAssets").
+			Preload("Vulns").
+			First(&target, id).Error; err != nil {
 			c.String(http.StatusNotFound, "Target not found")
 			return
 		}
-		c.HTML(http.StatusOK, "target.html", getGlobalContext(gin.H{
-			"Page":   "assets",
+		c.HTML(http.StatusOK, "target_details.html", getGlobalContext(gin.H{
+			"Page":   "assets", // Highlight Assets in sidebar
 			"Target": target,
 		}))
 	})

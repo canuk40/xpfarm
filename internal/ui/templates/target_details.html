@@ -1,0 +1,310 @@
+{{define "title"}}Target Details - {{.Target.Value}} - XPFarm{{end}}
+{{template "layout.html" .}}
+{{define "content"}}
+<div style="margin-bottom: 20px;">
+    <a href="/asset/{{.Target.AssetID}}" style="color: var(--color-muted); text-decoration: none;">&larr; Back to
+        Asset</a>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div>
+            <h1 style="margin-bottom: 5px;">{{.Target.Value}}</h1>
+            <div style="display: flex; gap: 10px; font-size: 0.9rem; color: var(--color-muted);">
+                <span>Type: {{.Target.Type}}</span>
+                <span>&bull;</span>
+                <span>Status: {{if .Target.IsAlive}}<span
+                        style="color: var(--color-secondary);">Alive</span>{{else}}<span
+                        style="color: #ef4444;">Unreachable</span>{{end}}</span>
+                <span>&bull;</span>
+                <span>Cloudflare: {{if .Target.IsCloudflare}}Yes{{else}}No{{end}}</span>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <p style="margin: 0; color: var(--color-muted); font-size: 0.8rem;">Last Scanned</p>
+            <p style="margin: 0; font-family: monospace;">{{.Target.UpdatedAt.Format "Jan 02, 15:04"}}</p>
+            <form action="/target/{{.Target.ID}}/scan" method="POST" style="margin-top: 10px;">
+                <button type="submit" class="btn btn-primary" style="padding: 5px 15px; font-size: 0.9rem;">Scan
+                    Now</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="tabs" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+    <button class="tab-btn active" onclick="showTab(event, 'overview')"><b><i>Overview</i></b></button>
+    <button class="tab-btn" onclick="showTab(event, 'subdomains')">Subdomains <span class="badge"
+            style="background:var(--bg-hover); color:white;">{{len .Target.Subdomains}}</span></button>
+    <button class="tab-btn" onclick="showTab(event, 'network')">Network <span class="badge"
+            style="background:var(--bg-hover); color:white;">{{len .Target.Ports}}</span></button>
+    <button class="tab-btn" onclick="showTab(event, 'web')">Web <span class="badge"
+            style="background:var(--bg-hover); color:white;">{{len .Target.WebAssets}}</span></button>
+    <button class="tab-btn" onclick="showTab(event, 'vulns')">Vulnerabilities <span class="badge"
+            style="background:var(--bg-hover); color:white;">{{len .Target.Vulns}}</span></button>
+    <button class="tab-btn" onclick="showTab(event, 'logs')">Raw Logs</button>
+</div>
+
+<!-- Overview Tab -->
+<div id="overview" class="tab-content" style="display: block;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+        <div class="card">
+            <h3>Open Ports</h3>
+            <p style="font-size: 2rem; font-weight: bold; color: var(--color-secondary);">{{len .Target.Ports}}</p>
+        </div>
+        <div class="card">
+            <h3>Web Assets</h3>
+            <p style="font-size: 2rem; font-weight: bold; color: #3b82f6;">{{len .Target.WebAssets}}</p>
+        </div>
+        <div class="card">
+            <h3>Vulnerabilities</h3>
+            <p style="font-size: 2rem; font-weight: bold; color: #ef4444;">{{len .Target.Vulns}}</p>
+        </div>
+        <div class="card">
+            <h3>Subdomains</h3>
+            <p style="font-size: 2rem; font-weight: bold; color: #a855f7;">{{len .Target.Subdomains}}</p>
+        </div>
+    </div>
+</div>
+
+<!-- Subdomains Tab -->
+<div id="subdomains" class="tab-content">
+    <div class="card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Subdomain</th>
+                    <th>Status</th>
+                    <th>Last Seen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Target.Subdomains}}
+                <tr>
+                    <td><a href="/target/{{.ID}}" style="color: var(--color-primary);">{{.Value}}</a></td>
+                    <td>{{if .IsAlive}}Alive{{else}}Unreachable{{end}}</td>
+                    <td>{{.UpdatedAt.Format "Jan 02, 15:04"}}</td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="3" class="text-muted">No subdomains found yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Network/Ports Tab -->
+<div id="network" class="tab-content">
+    <div class="card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Port</th>
+                    <th>Protocol</th>
+                    <th>Service</th>
+                    <th>Product</th>
+                    <th>Version</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Target.Ports}}
+                <tr>
+                    <td>{{.Port}}</td>
+                    <td>{{.Protocol}}</td>
+                    <td>{{.Service}}</td>
+                    <td>{{.Product}}</td>
+                    <td>{{.Version}}</td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="5" class="text-muted">No open ports found yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Web Assets Tab -->
+<div id="web" class="tab-content">
+    <div class="card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>URL</th>
+                    <th>Title</th>
+                    <th>Tech</th>
+                    <th>Status</th>
+                    <th>Screenshot</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Target.WebAssets}}
+                <tr>
+                    <td><a href="{{.URL}}" target="_blank" style="color: var(--color-primary);">{{.URL}}</a></td>
+                    <td>{{.Title}}</td>
+                    <td>{{.TechStack}}</td>
+                    <td><span class="badge"
+                            style="background: {{if eq .StatusCode 200}}var(--color-secondary){{else}}var(--bg-hover){{end}}">{{.StatusCode}}</span>
+                    </td>
+                    <td>
+                        {{if .Screenshot}}
+                        <a href="{{.Screenshot}}" target="_blank">View</a>
+                        {{else}}
+                        -
+                        {{end}}
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="5" class="text-muted">No web assets found yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Vulnerabilities Tab -->
+<div id="vulns" class="tab-content">
+    <div class="card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>Name</th>
+                    <th>Matcher</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Target.Vulns}}
+                <tr>
+                    <td>
+                        <span class="badge" style="
+                            {{if eq .Severity " critical"}}background: #7f1d1d; color: #fecaca;{{end}} {{if eq
+                            .Severity "high" }}background: #991b1b; color: #fecaca;{{end}} {{if eq .Severity "medium"
+                            }}background: #9a3412; color: #fed7aa;{{end}} {{if eq .Severity "low" }}background: #166534;
+                            color: #bbf7d0;{{end}} {{if eq .Severity "info" }}background: #1e40af; color:
+                            #bfdbfe;{{end}} ">{{.Severity}}</span>
+                    </td>
+                    <td>{{.Name}}</td>
+                    <td>{{.MatcherName}}</td>
+                    <td style=" font-size: 0.9em; color: var(--color-muted);">{{.Description}}
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="4" class="text-muted">No vulnerabilities found yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Raw Logs Tab -->
+<div id="logs" class="tab-content">
+    <div class="card">
+        {{range .Target.Results}}
+        <div style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span style="font-weight: bold; color: var(--color-primary);">{{.ToolName}}</span>
+                <span style="color: var(--color-muted); font-size: 0.8em;">{{.CreatedAt.Format "Jan 02, 15:04"}}</span>
+            </div>
+            <pre
+                style="background: black; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 200px;">{{.Output}}</pre>
+        </div>
+        {{else}}
+        <p class="text-muted">No raw logs available.</p>
+        {{end}}
+    </div>
+</div>
+
+<style>
+    .tab-btn {
+        background: transparent;
+        border: none;
+        color: var(--color-muted);
+        padding: 10px 20px;
+        cursor: pointer;
+        font-size: 1rem;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+        color: white;
+    }
+
+    .tab-btn.active {
+        color: white;
+        border-bottom: 2px solid var(--color-primary);
+    }
+
+    .tab-content {
+        display: none;
+        animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(5px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .table th,
+    .table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .table th {
+        color: var(--color-muted);
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        background: var(--bg-hover);
+    }
+</style>
+
+<script>
+    function showTab(evt, tabName) {
+        // Hide all tab content
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tab-content");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+
+        // Deactivate all buttons
+        tablinks = document.getElementsByClassName("tab-btn");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+
+        // Show current tab and activate button
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.className += " active";
+    }
+</script>
+{{end}}

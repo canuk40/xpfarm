@@ -3,7 +3,7 @@
 {{define "content"}}
 <h1>Settings</h1>
 
-<div id="discord-section" class="settings-section">
+<div id="notifications-section" class="settings-section">
     <div class="card">
         <h2>Discord Integration</h2>
         <p style="color: var(--color-muted); margin-bottom: 20px;">Configure interactive bot or notifications.</p>
@@ -40,9 +40,10 @@
             <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save & Restart Bot</button>
         </form>
     </div>
-</div>
 
-<div id="telegram-section" class="settings-section" style="display: none;">
+
+    <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
+
     <div class="card">
         <h2>Telegram Integration</h2>
         <p style="color: var(--color-muted); margin-bottom: 20px;">Configure Telegram notifications.</p>
@@ -73,6 +74,8 @@
         </form>
     </div>
 </div>
+
+
 
 
 
@@ -117,7 +120,9 @@
             </thead>
             <tbody>
                 {{range .Settings}}
-                {{if and (ne .Key "DISCORD_TOKEN") (ne .Key "DISCORD_CHANNEL_ID") (ne .Key "DISCORD_MODE")}}
+                {{if and (ne .Key "DISCORD_TOKEN") (ne .Key "DISCORD_CHANNEL_ID") (ne .Key "DISCORD_MODE") (ne .Key
+                "SHODAN_API_KEY") (ne .Key "CENSYS_API_ID") (ne .Key "CENSYS_API_SECRET") (ne .Key "FOFA_EMAIL") (ne
+                .Key "FOFA_KEY") (ne .Key "QUAKE_TOKEN") (ne .Key "HUNTER_API_KEY") (ne .Key "CRIMINALIP_API_KEY")}}
                 <tr>
                     <td style="font-family: monospace; color: var(--color-primary);">{{.Key}}</td>
                     <td>••••••••••••</td>
@@ -146,6 +151,85 @@
             </tbody>
         </table>
     </div>
+
+
+    <div class="card" style="margin-top: 20px;">
+        <h2>Uncover Configuration</h2>
+        <p style="color: var(--color-muted); margin-bottom: 20px;">Configure API keys for search engines used by
+            Uncover.
+        </p>
+        <form action="/settings/uncover" method="POST"
+            style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 10px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Shodan
+                        API Key</label>
+                    <input type="password" name="shodan" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `SHODAN_API_KEY`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Censys
+                        API ID</label>
+                    <input type="text" name="censys_id" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `CENSYS_API_ID`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Censys
+                        API Secret</label>
+                    <input type="password" name="censys_secret" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `CENSYS_API_SECRET`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Fofa
+                        Email</label>
+                    <input type="text" name="fofa_email" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `FOFA_EMAIL`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Fofa
+                        Key</label>
+                    <input type="password" name="fofa_key" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `FOFA_KEY`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Quake
+                        Token</label>
+                    <input type="password" name="quake" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `QUAKE_TOKEN`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">Hunter.how
+                        Key</label>
+                    <input type="password" name="hunter" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `HUNTER_API_KEY`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+                <div>
+                    <label
+                        style="display: block; color: var(--color-muted); margin-bottom: 5px; font-size: 0.9rem;">CriminalIP
+                        Key</label>
+                    <input type="password" name="criminalip" placeholder="Skipped if empty" autocomplete="off"
+                        value='{{range .Settings}}{{if eq .Key `CRIMINALIP_API_KEY`}}{{.Value}}{{end}}{{end}}'
+                        style="width: 100%; padding: 10px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none;">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Uncover Keys</button>
+        </form>
+    </div>
+</div>
 </div>
 
 <script>
@@ -155,10 +239,8 @@
 
         document.querySelectorAll('.settings-section').forEach(el => el.style.display = 'none');
 
-        if (tab === 'discord') {
-            document.getElementById('discord-section').style.display = 'block';
-        } else if (tab === 'telegram') {
-            document.getElementById('telegram-section').style.display = 'block';
+        if (tab === 'notifications') {
+            document.getElementById('notifications-section').style.display = 'block';
         } else {
             document.getElementById('env-section').style.display = 'block';
         }

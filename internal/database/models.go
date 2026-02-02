@@ -18,6 +18,9 @@ type Asset struct {
 type Target struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
 	AssetID      uint           `gorm:"index" json:"asset_id"`
+	ParentID     *uint          `gorm:"index" json:"parent_id"` // Pointer allows null for root targets
+	Parent       *Target        `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
+	Subdomains   []Target       `gorm:"foreignKey:ParentID" json:"subdomains,omitempty"`
 	Value        string         `gorm:"uniqueIndex" json:"value"` // IP, Domain, or URL
 	Type         string         `json:"type"`                     // "ip", "domain", "url", "cidr"
 	IsCloudflare bool           `json:"is_cloudflare"`
@@ -27,6 +30,47 @@ type Target struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 	Results      []ScanResult   `gorm:"foreignKey:TargetID" json:"results"`
+	Ports        []Port         `gorm:"foreignKey:TargetID" json:"ports"`
+	WebAssets    []WebAsset     `gorm:"foreignKey:TargetID" json:"web_assets"`
+	Vulns        []Vulnerability `gorm:"foreignKey:TargetID" json:"vulnerabilities"`
+}
+
+type Port struct {
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	TargetID  uint           `gorm:"index" json:"target_id"`
+	Port      int            `json:"port"`
+	Protocol  string         `json:"protocol"`
+	Service   string         `json:"service"`
+	Product   string         `json:"product"`
+	Version   string         `json:"version"`
+	CreatedAt time.Time      `json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type WebAsset struct {
+	ID         uint           `gorm:"primaryKey" json:"id"`
+	TargetID   uint           `gorm:"index" json:"target_id"`
+	URL        string         `json:"url"`
+	Title      string         `json:"title"`
+	TechStack  string         `json:"tech_stack"`
+	StatusCode int            `json:"status_code"`
+	ContentLen int            `json:"content_length"`
+	Screenshot string         `json:"screenshot_path"`
+	CreatedAt  time.Time      `json:"created_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type Vulnerability struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	TargetID    uint           `gorm:"index" json:"target_id"`
+	Name        string         `json:"name"`
+	Severity    string         `json:"severity"`
+	Description string         `json:"description"`
+	MatcherName string         `json:"matcher_name"`
+	Extracted   string         `json:"extracted_results"`
+	TemplateID  string         `json:"template_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type ScanResult struct {

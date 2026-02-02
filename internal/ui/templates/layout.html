@@ -56,7 +56,7 @@
         }
 
         .logo span {
-            color: var(--color-text);
+            color: var(--color-secondary);
         }
 
         .nav-links {
@@ -341,7 +341,7 @@
 
 <body>
     <div class="sidebar">
-        <div class="logo">XP<span>FARM</span></div>
+        <div class="logo">XP<span>Farm</span></div>
         <div class="nav-links">
             <!-- Dashboard -->
             <a href="/" class="nav-link {{if eq .Page `dashboard`}}active{{end}}">Dashboard</a>
@@ -356,7 +356,8 @@
                     <details class="nested-details" id="nav-asset-{{.ID}}">
                         <summary class="nested-summary">{{.Name}}</summary>
                         <div class="sub-menu">
-                            <a href="/asset/{{.ID}}" class="sub-link" style="font-style: italic;">Overview</a>
+                            <a href="/asset/{{.ID}}" class="sub-link"
+                                style="font-style: italic; font-weight: bold;">Overview</a>
                             {{range .Targets}}
                             <a href="/target/{{.ID}}" class="sub-link">{{.Value}}</a>
                             {{end}}
@@ -380,8 +381,7 @@
                 <summary>Settings</summary>
                 <div class="sub-menu">
                     <a href="/settings?tab=env" class="sub-link">Environment Variables</a>
-                    <a href="/settings?tab=discord" class="sub-link">Discord Integration</a>
-                    <a href="/settings?tab=telegram" class="sub-link">Telegram Integration</a>
+                    <a href="/settings?tab=notifications" class="sub-link">Notification Integration</a>
                 </div>
             </details>
         </div>
