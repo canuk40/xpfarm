@@ -29,6 +29,6 @@ func InitModules() {
 	Register(&Uncover{})
 	Register(&Cvemap{})
 	Register(&Urlfinder{})
-	Register(&Interactsh{})
+	Register(&Wappalyzer{})
 	Register(&Nmap{})
 }

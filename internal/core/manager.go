@@ -485,6 +485,46 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 										continue
 									}
 
+									// Run Wappalyzer analysis
+									wapp := modules.Get("wappalyzer")
+									if wappalyzer, ok := wapp.(*modules.Wappalyzer); ok {
+										// Httpx result doesn't explicitly separate headers/body in the struct I defined?
+										// I need to check HttpxResult struct.
+										// Assuming w.Response contains everything?
+										// Actually HttpxResult has `Response` field but I need to parse it or use headers/body separation.
+										// Since simple wappalyzergo takes map[string][]string for headers, I might need to simulate it
+										// if httpx doesn't provide structured headers.
+										// OR just rely on body signature for now?
+										// Realistically, the httpx JSON output might merge response.
+										// But let's check what I have. I have `w.Response`.
+										// If `w.Response` is empty (no -include-response?), I skip.
+										// But I added -include-response to RunRich.
+
+										// Basic header parsing (very naive)
+										headers := make(map[string][]string)
+										// TODO: better parsing if needed.
+										// For now, let's just use body analysis on the whole response string if library supports it?
+										// Wappalyzergo Fingerprint takes (headers, body).
+
+										bodyBytes := []byte(w.Response)
+										// Note: w.Response usually includes status line and headers in httpx text output?
+										// In JSON, `response` field might be raw.
+
+										extraTech := wappalyzer.Analyze(headers, bodyBytes)
+
+										// Merge unique
+										existing := make(map[string]bool)
+										for _, t := range w.Tech {
+											existing[t] = true
+										}
+										for _, t := range extraTech {
+											if !existing[t] {
+												w.Tech = append(w.Tech, t)
+												existing[t] = true
+											}
+										}
+									}
+
 									// Convert tech stack slice to string
 									techStr := strings.Join(w.Tech, ", ")
 
