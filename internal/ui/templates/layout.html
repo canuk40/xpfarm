@@ -399,9 +399,6 @@
                 if (state === "open") {
                     el.setAttribute("open", "");
                 } else if (state === "closed") {
-                    // Only force close if explicitly closed by user (override server default)
-                    // However, server default is helpful for context.
-                    // Strategy: LocalStorage wins if present.
                     el.removeAttribute("open");
                 }
 
@@ -413,6 +410,27 @@
                         localStorage.setItem("details-" + id, "closed");
                     }
                 });
+            });
+
+            // Persist Sidebar Scroll
+            const sidebar = document.querySelector('.sidebar');
+            const scrollKey = 'sidebar-scroll-pos';
+            const savedScroll = localStorage.getItem(scrollKey);
+            if (savedScroll) {
+                sidebar.scrollTop = parseInt(savedScroll, 10);
+            }
+            sidebar.addEventListener('scroll', () => {
+                localStorage.setItem(scrollKey, sidebar.scrollTop);
+            });
+
+            // Highlight Active Link
+            const currentPath = window.location.pathname;
+            document.querySelectorAll('.nav-link, .sub-link').forEach(link => {
+                if (link.getAttribute('href') === currentPath) {
+                    link.style.color = "var(--color-secondary)";
+                    link.style.fontWeight = "bold";
+                    link.classList.add('active');
+                }
             });
         });
     </script>
