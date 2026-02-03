@@ -105,6 +105,7 @@
                     <th>Service</th>
                     <th>Product</th>
                     <th>Version</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -115,10 +116,30 @@
                     <td>{{.Service}}</td>
                     <td>{{.Product}}</td>
                     <td>{{.Version}}</td>
+                    <td style="text-align: right;">
+                        {{if .Scripts}}
+                        <button onclick="toggleRow('row-{{.ID}}')"
+                            style="background:none; border:none; cursor:pointer; color: var(--color-primary);">
+                            &#9660;
+                        </button>
+                        {{end}}
+                    </td>
                 </tr>
+                {{if .Scripts}}
+                <tr id="row-{{.ID}}" style="display:none; background: rgba(255,255,255,0.03);">
+                    <td colspan="6" style="border-bottom: 2px solid var(--border-color);">
+                        <div style="padding: 10px;">
+                            <strong style="display:block; margin-bottom: 5px; color: var(--color-muted);">Script
+                                Output:</strong>
+                            <pre
+                                style="margin: 0; font-family: monospace; color: #d4d4d4; white-space: pre-wrap; font-size: 0.85rem;">{{.Scripts}}</pre>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
                 {{else}}
                 <tr>
-                    <td colspan="5" class="text-muted">No open ports found yet.</td>
+                    <td colspan="6" class="text-muted">No open ports found yet.</td>
                 </tr>
                 {{end}}
             </tbody>
@@ -305,6 +326,15 @@
         // Show current tab and activate button
         document.getElementById(tabName).style.display = "block";
         evt.currentTarget.className += " active";
+    }
+
+    function toggleRow(id) {
+        var x = document.getElementById(id);
+        if (x.style.display === "none") {
+            x.style.display = "table-row";
+        } else {
+            x.style.display = "none";
+        }
     }
 </script>
 {{end}}

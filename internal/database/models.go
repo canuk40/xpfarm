@@ -43,6 +43,7 @@ type Port struct {
 	Service   string         `json:"service"`
 	Product   string         `json:"product"`
 	Version   string         `json:"version"`
+	Scripts   string         `json:"scripts"` // Stores raw script output (e.g. from nmap)
 	CreatedAt time.Time      `json:"created_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }

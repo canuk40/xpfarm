@@ -394,6 +394,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 			if err == nil && output != "" {
 				lines := strings.Split(output, "\n")
 				portsFound := 0
+				var targetPorts []int
 				for _, line := range lines {
 					if strings.TrimSpace(line) == "" {
 						continue
@@ -411,10 +412,37 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 							Service:  "unknown",
 						})
 						portsFound++
+						// Collect for Stage 3
+						targetPorts = append(targetPorts, nResult.Port)
 					}
 				}
 				if portsFound > 0 {
 					utils.LogSuccess("[Scanner] [Naabu] Found %d open ports on %s", portsFound, t.Value)
+				}
+
+				// --- STAGE 3: Nmap Service Enumeration ---
+				if len(targetPorts) > 0 {
+					nm := modules.Get("nmap")
+					// Type assertion to access CustomScan
+					if nmapMod, ok := nm.(*modules.Nmap); ok && nmapMod.CheckInstalled() {
+						nResults, err := nmapMod.CustomScan(ctx, t.Value, targetPorts)
+						if err != nil {
+							utils.LogError("[Scanner] Nmap failed for %s: %v", t.Value, err)
+						} else {
+							utils.LogSuccess("[Scanner] [Nmap] Enriched %d services on %s", len(nResults), t.Value)
+							// Save results
+							for _, res := range nResults {
+								db.Model(&database.Port{}).
+									Where("target_id = ? AND port = ?", t.ID, res.Port).
+									Updates(map[string]interface{}{
+										"service": res.Service,
+										"product": res.Product,
+										"version": res.Version,
+										"scripts": res.Scripts,
+									})
+							}
+						}
+					}
 				}
 			}
 		}

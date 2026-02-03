@@ -30,4 +30,5 @@ func InitModules() {
 	Register(&Cvemap{})
 	Register(&Urlfinder{})
 	Register(&Interactsh{})
+	Register(&Nmap{})
 }
