@@ -64,9 +64,6 @@ ____  ________________________
 			} else {
 				utils.LogSuccess("Successfully installed %s", utils.Bold(mod.Name()))
 			}
-		} else {
-			// Optional: Verbose mode could show installed tools
-			// utils.LogSuccess("%s is installed.", utils.Bold(mod.Name()))
 		}
 	}
 

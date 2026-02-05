@@ -88,7 +88,9 @@ func (h *Httpx) RunRich(ctx context.Context, urls []string) ([]HttpxResult, erro
 	go func() {
 		defer stdin.Close()
 		for _, u := range urls {
-			io.WriteString(stdin, u+"\n")
+			if _, err := io.WriteString(stdin, u+"\n"); err != nil {
+				utils.LogDebug("Failed to write to httpx stdin: %v", err)
+			}
 		}
 	}()
 
@@ -96,7 +98,7 @@ func (h *Httpx) RunRich(ctx context.Context, urls []string) ([]HttpxResult, erro
 	if err != nil {
 		// Httpx checks might fail for some but still return data.
 		// If output is present, try to parse it.
-		// return nil, fmt.Errorf("httpx failed: %v", err)
+		utils.LogDebug("httpx finished with error: %v (output length: %d)", err, len(output))
 	}
 
 	var results []HttpxResult

@@ -108,7 +108,9 @@ func (c *Client) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate)
 			})
 
 	case "!ping":
-		s.ChannelMessageSend(m.ChannelID, "Pong! 🏓")
+		if _, err := s.ChannelMessageSend(m.ChannelID, "Pong! 🏓"); err != nil {
+			log.Printf("[Discord] Error sending pong: %v", err)
+		}
 
 	case "!scans":
 		active := c.Scanner.GetActiveScans()
@@ -199,5 +201,7 @@ func (c *Client) sendEmbed(s *discordgo.Session, channelID, title, desc string, 
 		Footer:      &discordgo.MessageEmbedFooter{Text: "XPFarm Automated Scanner"},
 		Timestamp:   time.Now().Format(time.RFC3339),
 	}
-	s.ChannelMessageSendEmbed(channelID, embed)
+	if _, err := s.ChannelMessageSendEmbed(channelID, embed); err != nil {
+		log.Printf("[Discord] Error sending embed: %v", err)
+	}
 }

@@ -354,8 +354,6 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 				// pm.Remove("Uncover") REMOVED
 			}()
 		}
-	} else {
-		// utils.LogInfo("[Scanner] No Uncover keys, skipping.")
 	}
 
 	// Channel Closer
@@ -808,7 +806,9 @@ func (sm *ScanManager) runSmartScan(ctx context.Context, db *gorm.DB, targetObj 
 		if err == nil {
 			defer os.Remove(f.Name())
 			for _, u := range targetURLs {
-				f.WriteString(u + "\n")
+				if _, err := f.WriteString(u + "\n"); err != nil {
+					utils.LogDebug("Failed to write to nuclei target file: %v", err)
+				}
 			}
 			f.Close()
 			targetFile = f.Name()

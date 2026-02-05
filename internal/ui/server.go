@@ -164,7 +164,9 @@ func StartServer(port string) error {
 			discordClient.SendNotification("🚀 Scan Started", "Started scanning target: **"+target+"**", 0x34d399)
 		}
 		if telegramClient != nil {
-			telegramClient.SendNotification(fmt.Sprintf("*🚀 Scan Started*\nStarted scanning target: `%s`", target))
+			if err := telegramClient.SendNotification(fmt.Sprintf("*🚀 Scan Started*\nStarted scanning target: `%s`", target)); err != nil {
+				utils.LogError("Telegram notification failed: %v", err)
+			}
 		}
 	}
 	manager.OnStop = func(target string, cancelled bool) {
@@ -172,7 +174,9 @@ func StartServer(port string) error {
 			discordClient.SendNotification("🏁 Scan Ended", "Scanning finished or stopped for: **"+target+"**", 0x8b5cf6)
 		}
 		if telegramClient != nil {
-			telegramClient.SendNotification(fmt.Sprintf("*🏁 Scan Ended*\nScanning finished or stopped for: `%s`", target))
+			if err := telegramClient.SendNotification(fmt.Sprintf("*🏁 Scan Ended*\nScanning finished or stopped for: `%s`", target)); err != nil {
+				utils.LogError("Telegram notification failed: %v", err)
+			}
 		}
 	}
 
@@ -670,7 +674,11 @@ func StartServer(port string) error {
 			dc, err := discord.NewClient(token, channel, manager)
 			if err == nil {
 				// Stop previous if exists? (Not implemented yet)
-				go dc.Start() // Run in background
+				go func() {
+					if err := dc.Start(); err != nil {
+						utils.LogError("Failed to restart Discord bot: %v", err)
+					}
+				}()
 
 				// Re-hook callbacks (idempotent assignment)
 				manager.OnStart = func(target string) {

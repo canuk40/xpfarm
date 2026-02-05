@@ -11,12 +11,7 @@ import (
 )
 
 var (
-	green   = color.New(color.FgGreen).SprintFunc()
-	red     = color.New(color.FgRed).SprintFunc()
-	yellow  = color.New(color.FgYellow).SprintFunc()
-	blue    = color.New(color.FgHiBlue).SprintFunc() // Lighter blue for better visibility
-	magenta = color.New(color.FgMagenta).SprintFunc()
-	bold    = color.New(color.Bold).SprintFunc()
+	bold = color.New(color.Bold).SprintFunc()
 
 	// Global flags
 	isDebug  = false
@@ -45,9 +40,6 @@ func prefix(c func(a ...interface{}) string) string {
 // Logic removed as per user request. Use standard logging only.
 
 func printLog(prefixFunc func(a ...interface{}) string, format string, a ...interface{}) {
-	// Silence check
-	if isSilent && !isDebug {
-	}
 
 	msg := fmt.Sprintf(format, a...)
 
@@ -126,7 +118,7 @@ func GetInfoWriter() io.Writer {
 // PrintGradient prints the text with a random gradient from Purple to [Green,Blue,Yellow,Red]
 func PrintGradient(text string) {
 	// Seed (using UnixNano for simple randomness on startup)
-	rand.Seed(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Targets: Green, Blue, Yellow, Red
 	targets := []struct{ r, g, b float64 }{
@@ -135,7 +127,7 @@ func PrintGradient(text string) {
 		{255.0, 255.0, 0.0}, // Yellow
 		{255.0, 0.0, 0.0},   // Red
 	}
-	target := targets[rand.Intn(len(targets))]
+	target := targets[r.Intn(len(targets))]
 
 	// Calculate line by line gradient for the banner block
 	lines := strings.Split(text, "\n")
