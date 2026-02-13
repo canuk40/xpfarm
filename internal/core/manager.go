@@ -696,6 +696,9 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 							}
 						}
 					}
+
+					// --- STAGE 7: CVE Lookup via Cvemap (Per-Worker/Per-Target) ---
+					sm.runCvemapScan(ctx, db, t)
 				}
 			}()
 		}
@@ -707,14 +710,119 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 	}
 
 	utils.LogSuccess("[Scanner] Pipeline Completed for %s", parsed.Value)
-
-	// --- STAGE 7: Smart Vulnerability Scan ---
-	// DISABLED: Nuclei and Cvemap scanning
-	// sm.runSmartScan(ctx, db, targetObj)
 }
 
-// runSmartScan is disabled - uncomment the call in runScanLogic line 713 to re-enable
-// func (sm *ScanManager) runSmartScan(ctx context.Context, db *gorm.DB, targetObj database.Target) { ... }
+// runCvemapScan looks up CVEs for each detected product (from Nmap) using vulnx
+func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj database.Target) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	cveMapMod := modules.Get("cvemap")
+	cm, ok := cveMapMod.(*modules.Cvemap)
+	if !ok || !cm.CheckInstalled() {
+		utils.LogDebug("[Scanner] Cvemap (vulnx) not available, skipping CVE lookup")
+		return
+	}
+
+	// Gather unique products from ports (Nmap service detection)
+	var ports []database.Port
+	db.Where("target_id = ? AND product != ''", targetObj.ID).Find(&ports)
+
+	// Deduplicate products
+	productSet := make(map[string]bool)
+	for _, p := range ports {
+		prod := strings.TrimSpace(p.Product)
+		if prod != "" && prod != "unknown" {
+			productSet[strings.ToLower(prod)] = true
+		}
+	}
+
+	// Also gather technologies from web assets (httpx tech detection)
+	var webAssets []database.WebAsset
+	db.Where("target_id = ? AND tech_stack != ''", targetObj.ID).Find(&webAssets)
+
+	for _, wa := range webAssets {
+		// TechStack is comma-separated — split into individual technologies
+		techs := strings.Split(wa.TechStack, ",")
+		for _, tech := range techs {
+			tech = strings.TrimSpace(tech)
+			if tech != "" && tech != "unknown" {
+				productSet[strings.ToLower(tech)] = true
+			}
+		}
+	}
+
+	if len(productSet) == 0 {
+		utils.LogDebug("[Scanner] No products/technologies detected for CVE lookup on %s", targetObj.Value)
+		return
+	}
+
+	utils.LogInfo("[Scanner] Querying Cvemap for %d products on %s...", len(productSet), targetObj.Value)
+
+	totalCVEs := 0
+	for product := range productSet {
+		if ctx.Err() != nil {
+			return
+		}
+
+		jsonOut, err := cm.SearchProduct(ctx, product)
+
+		// Record raw output regardless of parse success (for Raw Logs tab)
+		if jsonOut != "" {
+			recordResult(db, targetObj.ID, "cvemap", fmt.Sprintf("Product: %s\n%s", product, jsonOut))
+		}
+
+		if err != nil {
+			utils.LogDebug("[Scanner] Cvemap query failed for %s: %v", product, err)
+			continue
+		}
+
+		// Parse JSON response (single object with results array)
+		var response modules.CvemapResponse
+		if err := json.Unmarshal([]byte(jsonOut), &response); err != nil {
+			utils.LogDebug("[Scanner] Failed to parse Cvemap JSON for %s: %v", product, err)
+			continue
+		}
+
+		seen := make(map[string]bool)
+		count := 0
+
+		for _, result := range response.Results {
+			if result.CveID == "" || seen[result.CveID] {
+				continue
+			}
+			seen[result.CveID] = true
+
+			db.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "target_id"}, {Name: "product"}, {Name: "cve_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"severity", "cvss_score", "epss_score", "is_kev", "has_poc", "has_template",
+				}),
+			}).Create(&database.CVE{
+				TargetID:    targetObj.ID,
+				Product:     product,
+				CveID:       result.CveID,
+				Severity:    strings.ToLower(result.Severity),
+				CvssScore:   result.CvssScore,
+				EpssScore:   result.EpssScore,
+				IsKEV:       result.IsKEV,
+				HasPOC:      result.HasPOC,
+				HasTemplate: result.HasTemplate,
+			})
+			count++
+		}
+
+		if count > 0 {
+			utils.LogSuccess("[Scanner] [Cvemap] Found %d CVEs for %s", count, product)
+			totalCVEs += count
+		}
+	}
+
+	if totalCVEs > 0 {
+		utils.LogSuccess("[Scanner] [Cvemap] Total: %d CVEs across %d products for %s", totalCVEs, len(productSet), targetObj.Value)
+	}
+}
 
 func recordResult(db *gorm.DB, targetID uint, tool, output string) {
 	db.Create(&database.ScanResult{

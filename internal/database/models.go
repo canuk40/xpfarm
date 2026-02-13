@@ -33,6 +33,7 @@ type Target struct {
 	Ports        []Port          `gorm:"foreignKey:TargetID" json:"ports"`
 	WebAssets    []WebAsset      `gorm:"foreignKey:TargetID" json:"web_assets"`
 	Vulns        []Vulnerability `gorm:"foreignKey:TargetID" json:"vulnerabilities"`
+	CVEs         []CVE           `gorm:"foreignKey:TargetID" json:"cves"`
 }
 
 type Port struct {
@@ -81,6 +82,21 @@ type Vulnerability struct {
 	MatcherName string         `json:"matcher_name"`
 	Extracted   string         `json:"extracted_results"`
 	TemplateID  string         `gorm:"index:idx_vuln_template" json:"template_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type CVE struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	TargetID    uint           `gorm:"index;uniqueIndex:idx_cve_unique" json:"target_id"`
+	Product     string         `gorm:"index:idx_cve_product;uniqueIndex:idx_cve_unique" json:"product"`
+	CveID       string         `gorm:"index:idx_cve_id;uniqueIndex:idx_cve_unique" json:"cve_id"`
+	Severity    string         `gorm:"index:idx_cve_severity" json:"severity"`
+	CvssScore   float64        `json:"cvss_score"`
+	EpssScore   float64        `json:"epss_score"`
+	IsKEV       bool           `json:"is_kev"`
+	HasPOC      bool           `json:"has_poc"`
+	HasTemplate bool           `json:"has_template"`
 	CreatedAt   time.Time      `json:"created_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }

@@ -40,7 +40,7 @@
     <button class="tab-btn" onclick="showTab(event, 'web')">Web <span class="badge"
             style="background:var(--bg-hover); color:white;">{{len .Target.WebAssets}}</span></button>
     <button class="tab-btn" onclick="showTab(event, 'vulns')">Vulnerabilities <span class="badge"
-            style="background:var(--bg-hover); color:white;">{{len .Target.Vulns}}</span></button>
+            style="background:var(--bg-hover); color:white;">{{len .Target.CVEs}}</span></button>
     <button class="tab-btn" onclick="showTab(event, 'logs')">Raw Logs</button>
 </div>
 
@@ -387,7 +387,10 @@
 
 <!-- Vulnerabilities Tab -->
 <div id="vulns" class="tab-content">
-    <div class="card">
+    <!-- Nuclei Findings -->
+    {{if .Target.Vulns}}
+    <div class="card" style="margin-bottom: 20px;">
+        <h3 style="margin-bottom: 15px;">Nuclei Findings</h3>
         <table class="table">
             <thead>
                 <tr>
@@ -401,27 +404,93 @@
                 {{range .Target.Vulns}}
                 <tr>
                     <td>
-                        <span class="badge" style="
-                            {{if eq .Severity " critical"}}background: #7f1d1d; color: #fecaca;{{end}} {{if eq
-                            .Severity "high" }}background: #991b1b; color: #fecaca;{{end}} {{if eq .Severity "medium"
-                            }}background: #9a3412; color: #fed7aa;{{end}} {{if eq .Severity "low" }}background: #166534;
-                            color: #bbf7d0;{{end}} {{if eq .Severity "info" }}background: #1e40af; color:
-                            #bfdbfe;{{end}} ">{{.Severity}}</span>
+                        {{if eq .Severity "critical"}}<span class="badge" style="background:#7f1d1d;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity "high"}}<span class="badge" style="background:#991b1b;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity "medium"}}<span class="badge" style="background:#9a3412;color:#fed7aa">{{.Severity}}</span>{{else if eq .Severity "low"}}<span class="badge" style="background:#166534;color:#bbf7d0">{{.Severity}}</span>{{else}}<span class="badge" style="background:#1e40af;color:#bfdbfe">{{.Severity}}</span>{{end}}
                     </td>
                     <td>{{.Name}}</td>
                     <td>{{.MatcherName}}</td>
-                    <td style=" font-size: 0.9em; color: var(--color-muted);">{{.Description}}
-                    </td>
-                </tr>
-                {{else}}
-                <tr>
-                    <td colspan="4" class="text-muted">No vulnerabilities found yet.</td>
+                    <td style="font-size: 0.9em; color: var(--color-muted);">{{.Description}}</td>
                 </tr>
                 {{end}}
             </tbody>
         </table>
     </div>
+    {{end}}
+
+    <!-- Known Product CVEs from Cvemap -->
+    {{if .CVEsByProduct}}
+    <div class="card">
+        <h3 style="margin-bottom: 15px;">Known Product CVEs</h3>
+        {{range $product, $cves := .CVEsByProduct}}
+        <div style="border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 10px; padding: 12px;">
+            <div onclick="toggleRow('cve-product-{{$product}}')"
+                style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h4 style="margin: 0; text-transform: capitalize;">{{$product}}</h4>
+                    <span class="badge" style="background: var(--bg-hover); color: white;">{{len $cves}} CVEs</span>
+                </div>
+                <div style="display: flex; gap: 5px; align-items: center;">
+                    {{range $cves}}
+                    {{if eq .Severity "critical"}}<span
+                        style="width:8px;height:8px;border-radius:50%;background:#dc2626;display:inline-block"
+                        title="Critical"></span>
+                    {{else if eq .Severity "high"}}<span
+                        style="width:8px;height:8px;border-radius:50%;background:#f97316;display:inline-block"
+                        title="High"></span>
+                    {{else if eq .Severity "medium"}}<span
+                        style="width:8px;height:8px;border-radius:50%;background:#eab308;display:inline-block"
+                        title="Medium"></span>
+                    {{end}}
+                    {{end}}
+                    <span style="color: var(--color-muted); margin-left: 5px; font-size: 1.2rem;">&#9660;</span>
+                </div>
+            </div>
+            <div id="cve-product-{{$product}}" style="display: none; margin-top: 15px;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>CVE ID</th>
+                            <th>Severity</th>
+                            <th>CVSS</th>
+                            <th>EPSS</th>
+                            <th>KEV</th>
+                            <th>PoC</th>
+                            <th>Template</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $cves}}
+                        <tr>
+                            <td><a href="https://nvd.nist.gov/vuln/detail/{{.CveID}}" target="_blank"
+                                    style="color: var(--color-primary);">{{.CveID}}</a></td>
+                            <td>
+                                {{if eq .Severity "critical"}}<span class="badge" style="background:#7f1d1d;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity "high"}}<span class="badge" style="background:#991b1b;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity "medium"}}<span class="badge" style="background:#9a3412;color:#fed7aa">{{.Severity}}</span>{{else if eq .Severity "low"}}<span class="badge" style="background:#166534;color:#bbf7d0">{{.Severity}}</span>{{else}}<span class="badge" style="background:#1e40af;color:#bfdbfe">{{.Severity}}</span>{{end}}
+                            </td>
+                            <td style="font-family: monospace;">{{printf "%.1f" .CvssScore}}</td>
+                            <td style="font-family: monospace;">{{printf "%.4f" .EpssScore}}</td>
+                            <td>{{if .IsKEV}}<span style="color:#ef4444;font-weight:bold">&#10003;</span>{{else}}<span
+                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                            <td>{{if .HasPOC}}<span style="color:#f59e0b;font-weight:bold">&#10003;</span>{{else}}<span
+                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                            <td>{{if .HasTemplate}}<span
+                                    style="color:var(--color-secondary);font-weight:bold">&#10003;</span>{{else}}<span
+                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if and (not .Target.Vulns) (not .CVEsByProduct)}}
+    <div class="card">
+        <p class="text-muted">No vulnerabilities found yet.</p>
+    </div>
+    {{end}}
 </div>
+
 
 <!-- Raw Logs Tab -->
 <div id="logs" class="tab-content">

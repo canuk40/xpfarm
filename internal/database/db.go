@@ -42,7 +42,7 @@ func InitDB() {
 	}
 
 	// Migrate the schema
-	err = DB.AutoMigrate(&Asset{}, &Target{}, &ScanResult{}, &Setting{}, &Port{}, &WebAsset{}, &Vulnerability{})
+	err = DB.AutoMigrate(&Asset{}, &Target{}, &ScanResult{}, &Setting{}, &Port{}, &WebAsset{}, &Vulnerability{}, &CVE{})
 	if err != nil {
 		log.Fatal("failed to migrate database:", err)
 	}

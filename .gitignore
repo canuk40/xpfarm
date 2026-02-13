@@ -1,6 +1,7 @@
 # Binaries
 xpfarm
 xpfarm.exe
+xpfarm.*
 *.exe
 *.dll
 *.so
@@ -24,6 +25,7 @@ test/
 # IDE / OS
 .vscode/
 .idea/
+.agent
 .DS_Store
 Thumbs.db
 __pycache__/

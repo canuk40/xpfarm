@@ -378,6 +378,7 @@ func StartServer(port string) error {
 				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.Port{})
 				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.WebAsset{})
 				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.Vulnerability{})
+				db.Unscoped().Where("target_id IN ?", targetIDs).Delete(&database.CVE{})
 				// 3. Delete Targets
 				db.Unscoped().Delete(&database.Target{}, targetIDs)
 			}
@@ -802,6 +803,7 @@ func StartServer(port string) error {
 			db.Unscoped().Where("target_id = ?", id).Delete(&database.Port{})
 			db.Unscoped().Where("target_id = ?", id).Delete(&database.WebAsset{})
 			db.Unscoped().Where("target_id = ?", id).Delete(&database.Vulnerability{})
+			db.Unscoped().Where("target_id = ?", id).Delete(&database.CVE{})
 
 			// 3. Delete Target
 			db.Unscoped().Delete(&database.Target{}, id)
@@ -827,7 +829,8 @@ func StartServer(port string) error {
 			}).
 			Preload("WebAssets").
 			Preload("Vulns").
-			Find(&target, id).Error; err != nil {
+			Preload("CVEs").
+			First(&target, "id = ?", id).Error; err != nil {
 			c.String(http.StatusInternalServerError, "Database error")
 			return
 		}
@@ -835,9 +838,31 @@ func StartServer(port string) error {
 			c.String(http.StatusNotFound, "Target not found")
 			return
 		}
+
+		// Group CVEs by product for the template
+		cvesByProduct := make(map[string][]database.CVE)
+		for _, cve := range target.CVEs {
+			cvesByProduct[cve.Product] = append(cvesByProduct[cve.Product], cve)
+		}
+
+		// Sort CVEs within each product by severity
+		sevOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+		for prod := range cvesByProduct {
+			cves := cvesByProduct[prod]
+			sort.Slice(cves, func(i, j int) bool {
+				oi, oj := sevOrder[cves[i].Severity], sevOrder[cves[j].Severity]
+				if oi != oj {
+					return oi < oj
+				}
+				return cves[i].CvssScore > cves[j].CvssScore
+			})
+			cvesByProduct[prod] = cves
+		}
+
 		c.HTML(http.StatusOK, "target_details.html", getGlobalContext(gin.H{
-			"Page":   "assets", // Highlight Assets in sidebar
-			"Target": target,
+			"Page":          "assets",
+			"Target":        target,
+			"CVEsByProduct": cvesByProduct,
 		}))
 	})
 
