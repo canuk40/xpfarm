@@ -24,6 +24,7 @@ type Target struct {
 	Value        string          `gorm:"uniqueIndex" json:"value"`          // IP, Domain, or URL
 	Type         string          `gorm:"index:idx_target_type" json:"type"` // "ip", "domain", "url", "cidr"
 	IsCloudflare bool            `gorm:"index:idx_target_cf" json:"is_cloudflare"`
+	IsLocalhost  bool            `gorm:"index:idx_target_localhost" json:"is_localhost"`
 	IsAlive      bool            `gorm:"index:idx_target_alive;default:true" json:"is_alive"`
 	Status       string          `json:"status"` // "up", "down", "unreachable"
 	CreatedAt    time.Time       `json:"created_at"`

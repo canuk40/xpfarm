@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -31,16 +32,19 @@ func (u *Uncover) Install() error {
 
 func (u *Uncover) Run(ctx context.Context, target string) (string, error) {
 	utils.LogInfo("Running uncover on %s...", target)
-	// uncover usually needs queries, but for a default run we might just check basic info or skip
-	// For this wrapper, we'll assume target is a query or we might need to adjust logic later.
-	// As a placeholder, we'll run it with -q (query) if target looks like a query, or throw error.
-	// However, the user flow implies "targets" are companies/domains. Uncover uses API keys to search shodan/censys etc.
-	// We'll assume target is a domain and search for it.
 	path := utils.ResolveBinaryPath("uncover")
 	cmd := exec.CommandContext(ctx, path, "-q", target, "-silent")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("uncover failed: %v\nOutput: %s", err, output)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Uncover] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+	if err != nil {
+		return stdout.String(), fmt.Errorf("uncover failed: %v", err)
+	}
+	return stdout.String(), nil
 }

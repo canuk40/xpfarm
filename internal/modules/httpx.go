@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,11 +46,11 @@ type HttpxResult struct {
 	ContentType string   `json:"content_type"`
 	Location    string   `json:"location"`
 	Host        string   `json:"host"`
-	A           []string `json:"a"` // Actual IPs
+	A           []string `json:"a"`
 	CNAMEs      []string `json:"cname"`
 	CDN         bool     `json:"cdn"`
 	CDNName     string   `json:"cdn_name"`
-	Response    string   `json:"response"` // Need to check if this is raw body or requires separate flag logic
+	Response    string   `json:"response"`
 }
 
 func (h *HttpxResult) GetTech() string {
@@ -69,7 +70,6 @@ func (h *Httpx) RunRich(ctx context.Context, urls []string) ([]HttpxResult, erro
 	utils.LogInfo("Running httpx rich scan on %d urls...", len(urls))
 	path := utils.ResolveBinaryPath("httpx")
 
-	// Flags requested: -status-code -content-type -content-length -location -title -web-server -tech-detect -ip -cname -word-count -line-count -cdn -include-response -follow-host-redirects -max-redirects 2 -threads 50 -json
 	args := []string{
 		"-status-code", "-content-type", "-content-length", "-location", "-title",
 		"-web-server", "-tech-detect", "-ip", "-cname", "-word-count", "-line-count",
@@ -79,7 +79,7 @@ func (h *Httpx) RunRich(ctx context.Context, urls []string) ([]HttpxResult, erro
 
 	cmd := exec.CommandContext(ctx, path, args...)
 
-	// Stdin Pipe
+	// Stdin Pipe for URLs
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -94,35 +94,39 @@ func (h *Httpx) RunRich(ctx context.Context, urls []string) ([]HttpxResult, erro
 		}
 	}()
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Httpx checks might fail for some but still return data.
-		// If output is present, try to parse it.
-		utils.LogDebug("httpx finished with error: %v (output length: %d)", err, len(output))
-		if len(output) > 0 {
-			utils.LogDebug("httpx error output: %s", string(output))
-		}
+	// Separate stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmdErr := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Httpx] stderr: %s", stderr.String())
 	}
 
 	var results []HttpxResult
-	lines := strings.Split(string(output), "\n")
+	lines := strings.Split(stdout.String(), "\n")
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		var res HttpxResult
-		if err := json.Unmarshal([]byte(line), &res); err == nil {
+		if err := json.Unmarshal([]byte(line), &res); err != nil {
+			utils.LogDebug("[Httpx] Failed to parse JSON line: %v (line: %.100s)", err, line)
+		} else {
 			results = append(results, res)
 		}
+	}
+
+	// If command failed AND we got no results, propagate the error
+	if cmdErr != nil && len(results) == 0 {
+		return nil, fmt.Errorf("httpx failed: %v", cmdErr)
 	}
 
 	return results, nil
 }
 
-// Keep legacy Run for compatibility if needed, or update it.
+// Run is a simple wrapper for the Module interface
 func (h *Httpx) Run(ctx context.Context, target string) (string, error) {
-	// Simple wrapper around RunRich for single target?
-	// Or kept for other modules utilizing simple check.
-	// Let's leave as is for now, but implemented RunRich.
 	return "", nil
 }

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -31,12 +32,19 @@ func (s *Subfinder) Install() error {
 
 func (s *Subfinder) Run(ctx context.Context, target string) (string, error) {
 	utils.LogInfo("Running subfinder on %s...", target)
-	// -d target -silent
 	path := utils.ResolveBinaryPath("subfinder")
 	cmd := exec.CommandContext(ctx, path, "-d", target, "-silent")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("subfinder failed: %v\nOutput: %s", err, output)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Subfinder] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+	if err != nil {
+		return stdout.String(), fmt.Errorf("subfinder failed: %v", err)
+	}
+	return stdout.String(), nil
 }

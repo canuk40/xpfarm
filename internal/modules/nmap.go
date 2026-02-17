@@ -149,9 +149,16 @@ func (n *Nmap) CustomScan(ctx context.Context, target string, ports []int) ([]Nm
 
 			for _, fb := range fbResults {
 				if original, ok := resultMap[fb.Port]; ok {
-					original.Service = fb.Service
-					original.Product = ""
-					original.Version = ""
+					// Only overwrite with fallback data if it's actually better
+					if fb.Service != "" && fb.Service != "unknown" {
+						original.Service = fb.Service
+					}
+					if fb.Product != "" {
+						original.Product = fb.Product
+					}
+					if fb.Version != "" {
+						original.Version = fb.Version
+					}
 				}
 			}
 		} else {

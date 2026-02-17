@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -60,7 +62,7 @@ func (sm *ScanManager) GetActiveScans() []ActiveScanData {
 	return list
 }
 
-func (sm *ScanManager) StartScan(targetInput string, assetName string, excludeCF bool) {
+func (sm *ScanManager) StartScan(targetInput string, assetName string, excludeCF bool, excludeLocalhost bool) {
 	sm.mu.Lock()
 	if _, exists := sm.activeScans[targetInput]; exists {
 		sm.mu.Unlock()
@@ -96,7 +98,7 @@ func (sm *ScanManager) StartScan(targetInput string, assetName string, excludeCF
 				}
 			}
 		}()
-		sm.runScanLogic(ctx, targetInput, assetName, excludeCF)
+		sm.runScanLogic(ctx, targetInput, assetName, excludeCF, excludeLocalhost)
 	}()
 }
 
@@ -108,9 +110,9 @@ func (sm *ScanManager) StopScan(target string) {
 		// Stop ALL
 		for t, info := range sm.activeScans {
 			info.Cancel()
-			delete(sm.activeScans, t) // Immediate removal
+			delete(sm.activeScans, t)
 			if sm.OnStop != nil {
-				sm.OnStop(t, true) // Immediate notification
+				sm.OnStop(t, true)
 			}
 			utils.LogInfo("[Manager] Stopping scan for %s", t)
 		}
@@ -118,9 +120,9 @@ func (sm *ScanManager) StopScan(target string) {
 		// Stop Specific
 		if info, ok := sm.activeScans[target]; ok {
 			info.Cancel()
-			delete(sm.activeScans, target) // Immediate removal
+			delete(sm.activeScans, target)
 			if sm.OnStop != nil {
-				sm.OnStop(target, true) // Immediate notification
+				sm.OnStop(target, true)
 			}
 			utils.LogInfo("[Manager] Stopping scan for %s", target)
 		}
@@ -145,7 +147,7 @@ func (sm *ScanManager) StopAssetScan(assetName string) {
 			info.Cancel()
 			delete(sm.activeScans, t)
 			if sm.OnStop != nil {
-				sm.OnStop(t, true) // Immediate notification
+				sm.OnStop(t, true)
 			}
 			count++
 		}
@@ -154,16 +156,20 @@ func (sm *ScanManager) StopAssetScan(assetName string) {
 }
 
 // runScanLogic executes the sequential pipeline
-func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, assetName string, excludeCF bool) {
+func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, assetName string, excludeCF bool, excludeLocalhost bool) {
 	// 1. Initialize & Context Check
 	db := database.GetDB()
 	if ctx.Err() != nil {
 		return
 	}
 
-	// 2. Resolve Target & Asset
+	// 2. Normalize & Resolve Target
 	parsed := ParseTarget(targetInput)
-	utils.LogInfo("[Scanner] Pipeline Start: %s (%s)", parsed.Value, parsed.Type)
+	hostname := NormalizeToHostname(parsed.Value)
+	if hostname == "" {
+		hostname = parsed.Value
+	}
+	utils.LogInfo("[Scanner] Pipeline Start: %s (normalized: %s, type: %s)", parsed.Value, hostname, parsed.Type)
 
 	if assetName == "" {
 		assetName = "Default"
@@ -173,140 +179,175 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 		utils.LogError("[Scanner] Error getting asset: %v", err)
 	}
 
-	// 3. Pre-Scan Checks (Resolution/CF)
-	check := ResolveAndCheck(parsed.Value)
-	if !check.IsAlive {
-		utils.LogWarning("[Scanner] Target unreachable: %s", parsed.Value)
-		// We might still want to scan it if it's a domain that resolves but doesn't ping?
-		// For now, adhere to strict check to save resources.
-		return
-	}
-	if check.IsCloudflare && excludeCF {
-		utils.LogWarning("[Scanner] Skipping Cloudflare target: %s", parsed.Value)
-		return
-	}
-
-	// 4. Create/Get Main Target Record
+	// 3. Create Main Target Record (before IsAlive check — always stored in DB)
 	targetObj := database.Target{
-		AssetID:      asset.ID,
-		Value:        parsed.Value,
-		Type:         string(parsed.Type),
-		IsCloudflare: check.IsCloudflare,
-		IsAlive:      check.IsAlive,
-		Status:       check.Status,
+		AssetID: asset.ID,
+		Value:   hostname,
+		Type:    string(parsed.Type),
 	}
-	if err := db.Where(database.Target{Value: parsed.Value, AssetID: asset.ID}).FirstOrCreate(&targetObj).Error; err != nil {
+	if err := db.Where(database.Target{Value: hostname, AssetID: asset.ID}).FirstOrCreate(&targetObj).Error; err != nil {
 		utils.LogError("Error creating target: %v", err)
 		return // Critical failure
-	} else {
-		db.Model(&targetObj).Update("updated_at", time.Now())
+	}
+	db.Model(&targetObj).Update("updated_at", time.Now())
+
+	// === STAGE 1: Subdomain Discovery (Subfinder — Synchronous) ===
+	utils.LogInfo("[Scanner] Stage 1: Running Subfinder on %s", hostname)
+	var subdomains []string
+
+	subfinderMod := modules.Get("subfinder")
+	if subfinderMod != nil && subfinderMod.CheckInstalled() {
+		output, err := subfinderMod.Run(ctx, hostname)
+		recordResult(db, targetObj.ID, "subfinder", output)
+
+		if err == nil && output != "" {
+			lines := strings.Split(output, "\n")
+			for _, line := range lines {
+				domain := strings.TrimSpace(line)
+				if domain == "" || domain == hostname {
+					continue
+				}
+				subdomains = append(subdomains, domain)
+			}
+			utils.LogSuccess("[Scanner] Subfinder found %d subdomains for %s", len(subdomains), hostname)
+		} else if err != nil {
+			utils.LogError("[Scanner] Subfinder failed: %v", err)
+		}
 	}
 
-	// === PIPELINE START ===
-	utils.LogInfo("[Scanner] Starting Pipeline for %s", parsed.Value)
+	if ctx.Err() != nil {
+		return
+	}
 
-	// Initialize Multi-line Progress
-	// pm := utils.StartProgress() REMOVED
-	// defer utils.StopProgress() REMOVED
+	// === STAGE 2: Create subdomain records, then check IsAlive on all ===
+	utils.LogInfo("[Scanner] Stage 2: Creating %d subdomain records and running IsAlive checks", len(subdomains))
 
-	// Channel for targets to be scanned (Producer -> Consumer)
-	// Buffer slightly to avoid blocking producers on immediate processing
+	// First, create all subdomain records in DB (no alive check yet)
+	var allSubTargets []database.Target
+	for _, domain := range subdomains {
+		subTarget := database.Target{
+			AssetID:  asset.ID,
+			ParentID: &targetObj.ID,
+			Value:    domain,
+			Type:     "domain",
+		}
+		if err := db.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "value"}},
+			DoNothing: true,
+		}).Where(database.Target{Value: domain, AssetID: asset.ID}).FirstOrCreate(&subTarget).Error; err != nil {
+			utils.LogDebug("[Scanner] Error creating subtarget %s: %v", domain, err)
+			continue
+		}
+		allSubTargets = append(allSubTargets, subTarget)
+	}
+
+	// Now check IsAlive on the main target + all subdomains
+	// Channel for alive targets to be scanned
 	targetsChan := make(chan database.Target, 100)
 	var producerWG sync.WaitGroup
 
-	// Tracking for Progress Bars
-	// Removed tracking variables
+	// Check main target alive status
+	mainCheck := ResolveAndCheck(hostname)
 
-	// Push the main target to the channel first
-	producerWG.Add(1)
-	go func() {
-		defer producerWG.Done()
-		targetsChan <- targetObj
-	}()
-
-	// --- PRODUCERS (Discovery) ---
-
-	// A. Subfinder Producer
-	subfinderMod := modules.Get("subfinder")
-	if subfinderMod != nil && subfinderMod.CheckInstalled() {
-		producerWG.Add(1)
-		go func() {
-			defer producerWG.Done()
-			output, err := subfinderMod.Run(ctx, parsed.Value)
-			recordResult(db, targetObj.ID, "subfinder", output)
-
-			if err == nil && output != "" {
-				lines := strings.Split(output, "\n")
-				// count := 0 (Unused for now)
-				for _, line := range lines {
-					domain := strings.TrimSpace(line)
-					if domain == "" || domain == parsed.Value {
-						continue
-					}
-					// Check simple context cancellation
-					if ctx.Err() != nil {
-						return
-					}
-
-					// Validate & Check Cloudflare
-					check := ResolveAndCheck(domain)
-					if !check.IsAlive {
-						// Skip unreachable subdomains
-						continue
-					}
-
-					if excludeCF && check.IsCloudflare {
-						// Skip Cloudflare subdomains if requested
-						continue
-					}
-
-					subTarget := database.Target{
-						AssetID:      asset.ID,
-						ParentID:     &targetObj.ID,
-						Value:        domain,
-						Type:         "domain",
-						Status:       check.Status,
-						IsCloudflare: check.IsCloudflare,
-						IsAlive:      check.IsAlive,
-					}
-					// DB FirstOrCreate
-					if err := db.Clauses(clause.OnConflict{DoNothing: true}).Where(database.Target{Value: domain, AssetID: asset.ID}).FirstOrCreate(&subTarget).Error; err == nil {
-						// Send to scanner
-						targetsChan <- subTarget
-						// found++ (Removed, user requested no count)
-						// pm.UpdateStatus("Subfinder", fmt.Sprintf("Found %d", found)) (Removed)
-
-						// Update Naabu Total (it might not be started yet, but variable is shared)
-						// atomic add
-						// Actually we can just update the bar if it exists
-						// We'll update the variable, Naabu loop will pick it up or we push update?
-						// Better: atomic add to total.
-						// We need atomic because Subfinder and Uncover run parallel.
-					}
-				}
-				// Atomic add to total targets for Naabu
-				// Wait, we need to import sync/atomic or just use mutex.
-				// Let's use a local lock for counters if needed, but for now simple addition.
-				// Actually, to keep it simple without major race on the int:
-				// We can just update the progress bar from here if Naabu is running.
-				// Ideally, we add to a shared counter.
-
-				// Simplify: We just update status text for Subfinder. Naabu's *total* updates when it *receives*?
-				// No, Naabu consumes from channel. Channel length is unknown.
-				// We must track total discovered.
-				// Use atomic for thread safety.
-				// atomic.AddInt32(&totalTargets, int32(found))
-
-				// pm.Remove("Subfinder") REMOVED
-			} else if err != nil {
-				// pm.Remove("Subfinder") REMOVED
-				utils.LogError("[Scanner] Subfinder failed: %v", err)
-			}
-		}()
+	// Tag localhost in DB regardless of excludeLocalhost setting
+	if mainCheck.IsLocalhost {
+		db.Model(&targetObj).Update("is_localhost", true)
 	}
 
-	// B. Uncover Producer
-	// utils.LogInfo checks suppressed, just check keys silently or log once
+	if !mainCheck.IsAlive {
+		// Truly unreachable — soft-delete
+		utils.LogWarning("[Scanner] Main target %s is unreachable (%s), removing", hostname, mainCheck.Status)
+		db.Model(&targetObj).Updates(map[string]interface{}{"status": mainCheck.Status, "is_alive": false})
+		db.Delete(&targetObj)
+		// Subdomains can still be alive even if the apex domain is dead,
+		// so we continue checking them individually below.
+	} else if mainCheck.IsLocalhost && excludeLocalhost {
+		// Alive but resolves to localhost and user chose to exclude
+		utils.LogWarning("[Scanner] Main target %s resolves to localhost (excluded), removing", hostname)
+		db.Model(&targetObj).Updates(map[string]interface{}{"status": "resolves to localhost", "is_alive": false})
+		db.Delete(&targetObj)
+	} else {
+		// Main target is alive (and either not localhost, or localhost is allowed)
+		db.Model(&targetObj).Updates(map[string]interface{}{
+			"is_cloudflare": mainCheck.IsCloudflare,
+			"is_localhost":  mainCheck.IsLocalhost,
+			"is_alive":      true,
+			"status":        "up",
+		})
+		targetObj.IsCloudflare = mainCheck.IsCloudflare
+		targetObj.IsLocalhost = mainCheck.IsLocalhost
+		targetObj.IsAlive = true
+		targetObj.Status = "up"
+
+		// Push main target if it passes filters
+		skip := (excludeCF && mainCheck.IsCloudflare)
+		if !skip {
+			producerWG.Add(1)
+			go func() {
+				defer producerWG.Done()
+				targetsChan <- targetObj
+			}()
+		} else {
+			utils.LogWarning("[Scanner] Skipping main target %s (Cloudflare)", hostname)
+		}
+	}
+
+	// Check all subdomains
+	for _, subTarget := range allSubTargets {
+		if ctx.Err() != nil {
+			break
+		}
+
+		check := ResolveAndCheck(subTarget.Value)
+
+		// Tag localhost in DB regardless of excludeLocalhost setting
+		if check.IsLocalhost {
+			db.Model(&subTarget).Update("is_localhost", true)
+		}
+
+		// Truly unreachable → soft-delete
+		if !check.IsAlive {
+			utils.LogDebug("[Scanner] Subdomain %s is unreachable (%s), removing", subTarget.Value, check.Status)
+			db.Model(&subTarget).Updates(map[string]interface{}{"status": check.Status, "is_alive": false})
+			db.Delete(&subTarget)
+			continue
+		}
+
+		// Alive but localhost — only exclude if user opted in
+		if check.IsLocalhost && excludeLocalhost {
+			utils.LogDebug("[Scanner] Subdomain %s resolves to localhost (excluded), removing", subTarget.Value)
+			db.Model(&subTarget).Updates(map[string]interface{}{"status": "resolves to localhost", "is_alive": false})
+			db.Delete(&subTarget)
+			continue
+		}
+
+		// Update alive status in DB
+		db.Model(&subTarget).Updates(map[string]interface{}{
+			"is_cloudflare": check.IsCloudflare,
+			"is_localhost":  check.IsLocalhost,
+			"is_alive":      true,
+			"status":        "up",
+		})
+
+		// Skip if Cloudflare-excluded
+		if excludeCF && check.IsCloudflare {
+			utils.LogDebug("[Scanner] Subdomain %s is behind Cloudflare, skipping scan", subTarget.Value)
+			continue
+		}
+
+		subTarget.IsAlive = true
+		subTarget.IsCloudflare = check.IsCloudflare
+		subTarget.IsLocalhost = check.IsLocalhost
+		subTarget.Status = "up"
+
+		producerWG.Add(1)
+		go func(t database.Target) {
+			defer producerWG.Done()
+			targetsChan <- t
+		}(subTarget)
+	}
+
+	// === Uncover Producer (Parallel — ports only) ===
 	hasUncoverKeys := false
 	uncoverKeys := []string{"SHODAN_API_KEY", "CENSYS_API_ID", "CENSYS_API_SECRET", "FOFA_KEY", "QUAKE_TOKEN", "HUNTER_API_KEY", "CRIMINALIP_API_KEY"}
 	for _, k := range uncoverKeys {
@@ -322,7 +363,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 			producerWG.Add(1)
 			go func() {
 				defer producerWG.Done()
-				output, err := uncoverMod.Run(ctx, parsed.Value)
+				output, err := uncoverMod.Run(ctx, hostname)
 				recordResult(db, targetObj.ID, "uncover", output)
 
 				if err == nil && output != "" {
@@ -334,24 +375,42 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 							continue
 						}
 
-						parts := strings.Split(line, ":")
-						if len(parts) >= 2 {
-							portVal := utils.StringToInt(parts[len(parts)-1])
-							db.Clauses(clause.OnConflict{
-								Columns:   []clause.Column{{Name: "target_id"}, {Name: "port"}},
-								DoNothing: true,
-							}).Create(&database.Port{
-								TargetID: targetObj.ID,
-								Port:     portVal,
-								Protocol: "tcp",
-								Service:  "unknown",
-							})
-							count++
+						// Parse host:port safely (handles IPv6)
+						host, portStr, splitErr := net.SplitHostPort(line)
+						if splitErr != nil {
+							// Might be just an IP/host without port
+							utils.LogDebug("[Scanner] Uncover line not host:port format: %s", line)
+							continue
 						}
+
+						portVal := utils.StringToInt(portStr)
+						if portVal <= 0 || portVal > 65535 {
+							utils.LogDebug("[Scanner] Uncover invalid port: %s", portStr)
+							continue
+						}
+
+						// Find the correct target to attribute the port to
+						portTargetID := targetObj.ID
+						if host != "" && host != hostname {
+							var matchTarget database.Target
+							if err := db.Where("value = ? AND asset_id = ?", host, asset.ID).First(&matchTarget).Error; err == nil {
+								portTargetID = matchTarget.ID
+							}
+						}
+
+						db.Clauses(clause.OnConflict{
+							Columns:   []clause.Column{{Name: "target_id"}, {Name: "port"}},
+							DoNothing: true,
+						}).Create(&database.Port{
+							TargetID: portTargetID,
+							Port:     portVal,
+							Protocol: "tcp",
+							Service:  "unknown",
+						})
+						count++
 					}
 					utils.LogSuccess("[Scanner] Uncover found %d results", count)
 				}
-				// pm.Remove("Uncover") REMOVED
 			}()
 		}
 	}
@@ -362,7 +421,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 		close(targetsChan)
 	}()
 
-	// --- CONSUMER (Worker Pool) ---
+	// === CONSUMER (Worker Pool — Naabu + downstream stages) ===
 	const maxWorkers = 5
 	naabuMod := modules.Get("naabu")
 
@@ -398,27 +457,32 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 								IP   string `json:"ip"`
 								Port int    `json:"port"`
 							}
-							if err := json.Unmarshal([]byte(line), &nResult); err == nil {
-								// Skip duplicate ports
-								if seenNaabuPorts[nResult.Port] {
-									continue
-								}
-								seenNaabuPorts[nResult.Port] = true
-
-								// Use OnConflict to handle race condition between Uncover and Naabu
-								db.Clauses(clause.OnConflict{
-									Columns:   []clause.Column{{Name: "target_id"}, {Name: "port"}},
-									DoNothing: true,
-								}).Create(&database.Port{
-									TargetID: t.ID,
-									Port:     nResult.Port,
-									Protocol: "tcp",
-									Service:  "unknown",
-								})
-								portsFound++
-								// Collect for Stage 3
-								targetPorts = append(targetPorts, nResult.Port)
+							if jsonErr := json.Unmarshal([]byte(line), &nResult); jsonErr != nil {
+								utils.LogDebug("[Scanner] [Naabu] Failed to parse JSON line: %v (line: %.100s)", jsonErr, line)
+								continue
 							}
+							if nResult.Port <= 0 || nResult.Port > 65535 {
+								utils.LogDebug("[Scanner] [Naabu] Invalid port value: %d", nResult.Port)
+								continue
+							}
+							// Skip duplicate ports
+							if seenNaabuPorts[nResult.Port] {
+								continue
+							}
+							seenNaabuPorts[nResult.Port] = true
+
+							// Use OnConflict to handle race condition between Uncover and Naabu
+							db.Clauses(clause.OnConflict{
+								Columns:   []clause.Column{{Name: "target_id"}, {Name: "port"}},
+								DoNothing: true,
+							}).Create(&database.Port{
+								TargetID: t.ID,
+								Port:     nResult.Port,
+								Protocol: "tcp",
+								Service:  "unknown",
+							})
+							portsFound++
+							targetPorts = append(targetPorts, nResult.Port)
 						}
 						if portsFound > 0 {
 							utils.LogSuccess("[Scanner] [Naabu] Found %d open ports on %s", portsFound, t.Value)
@@ -428,22 +492,19 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 						var nResults []modules.NmapResult
 						if len(targetPorts) > 0 {
 							nm := modules.Get("nmap")
-							// Type assertion to access CustomScan
 							if nmapMod, ok := nm.(*modules.Nmap); ok && nmapMod.CheckInstalled() {
-								var err error
+								var nmapErr error
 								var nmapRaw string
-								nResults, nmapRaw, err = nmapMod.CustomScan(ctx, t.Value, targetPorts)
+								nResults, nmapRaw, nmapErr = nmapMod.CustomScan(ctx, t.Value, targetPorts)
 
-								// Record Raw Nmap Output
 								if nmapRaw != "" {
 									recordResult(db, t.ID, "nmap", nmapRaw)
 								}
 
-								if err != nil {
-									utils.LogError("[Scanner] Nmap failed for %s: %v", t.Value, err)
+								if nmapErr != nil {
+									utils.LogError("[Scanner] Nmap failed for %s: %v", t.Value, nmapErr)
 								} else {
 									utils.LogSuccess("[Scanner] [Nmap] Enriched %d services on %s", len(nResults), t.Value)
-									// Save results
 									for _, res := range nResults {
 										db.Model(&database.Port{}).
 											Where("target_id = ? AND port = ?", t.ID, res.Port).
@@ -458,6 +519,12 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 							}
 
 							// --- STAGE 4: Web Probing (Httpx) ---
+							// Build a service map from Nmap results for protocol detection
+							nmapServiceMap := make(map[int]string)
+							for _, res := range nResults {
+								nmapServiceMap[res.Port] = res.Service
+							}
+
 							var httpUrls []string
 							seenPorts := make(map[int]bool)
 
@@ -467,7 +534,12 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 								}
 								seenPorts[port] = true
 								proto := "http"
-								if port == 443 || port == 8443 {
+								// Use Nmap service detection if available
+								if svc, ok := nmapServiceMap[port]; ok {
+									if strings.Contains(svc, "ssl") || strings.Contains(svc, "https") {
+										proto = "https"
+									}
+								} else if port == 443 || port == 8443 || port == 9443 || port == 4443 {
 									proto = "https"
 								}
 								httpUrls = append(httpUrls, fmt.Sprintf("%s://%s:%d", proto, t.Value, port))
@@ -486,48 +558,44 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 								utils.LogInfo("[Scanner] Triggering Httpx Stage 4 for %d URLs on %s", len(httpUrls), t.Value)
 								httpxMod := modules.Get("httpx")
 								if hx, ok := httpxMod.(*modules.Httpx); ok && hx.CheckInstalled() {
-									webResults, err := hx.RunRich(ctx, httpUrls)
-									if err != nil {
-										utils.LogError("[Scanner] Httpx Stage 4 failed: %v", err)
+									webResults, httpxErr := hx.RunRich(ctx, httpUrls)
+									if httpxErr != nil {
+										utils.LogError("[Scanner] Httpx Stage 4 failed: %v", httpxErr)
 									} else {
 										// Save WebAssets
 										count := 0
 										for _, w := range webResults {
-											// Skip completely empty results if any
 											if w.URL == "" {
 												continue
 											}
 
-											// Run Wappalyzer analysis
+											// Run Wappalyzer analysis with response headers
 											wapp := modules.Get("wappalyzer")
 											if wappalyzer, ok := wapp.(*modules.Wappalyzer); ok {
-
-												headers := make(map[string][]string)
-
+												// Parse response headers from httpx response
+												headers := extractHeadersFromResponse(w.Response)
 												bodyBytes := []byte(w.Response)
 
 												extraTech := wappalyzer.Analyze(headers, bodyBytes)
 
-												// Merge unique
+												// Merge unique technologies
 												existing := make(map[string]bool)
-												for _, t := range w.Tech {
-													existing[t] = true
+												for _, tech := range w.Tech {
+													existing[tech] = true
 												}
-												for _, t := range extraTech {
-													if !existing[t] {
-														w.Tech = append(w.Tech, t)
-														existing[t] = true
+												for _, tech := range extraTech {
+													if !existing[tech] {
+														w.Tech = append(w.Tech, tech)
+														existing[tech] = true
 													}
 												}
 
-												// Record Wappalyzer "Raw" Log (Synthesized)
 												if len(w.Tech) > 0 {
 													wappLog := fmt.Sprintf("Target: %s\nDetected Technologies:\n%s", w.URL, strings.Join(w.Tech, ", "))
 													recordResult(db, t.ID, "wappalyzer", wappLog)
 												}
 											}
 
-											// Convert tech stack slice to string
 											techStr := strings.Join(w.Tech, ", ")
 
 											db.Clauses(clause.OnConflict{
@@ -560,7 +628,6 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 										utils.LogSuccess("[Scanner] [Httpx] Enriched %d web assets on %s", count, t.Value)
 
 										// --- STAGES 5-6: Parallel Web Asset Processing ---
-										// Run Gowitness, Katana, URLFinder concurrently per URL
 										gw := modules.Get("gowitness")
 										kat := modules.Get("katana")
 										urlF := modules.Get("urlfinder")
@@ -569,7 +636,6 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 										katanaMod, katOk := kat.(*modules.Katana)
 										urlMod, urlOk := urlF.(*modules.Urlfinder)
 
-										// Cache installation checks to avoid repeated lookups
 										gwInstalled := gwOk && gowitnessMod.CheckInstalled()
 										katInstalled := katOk && katanaMod.CheckInstalled()
 										urlInstalled := urlOk && urlMod.CheckInstalled()
@@ -578,7 +644,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 											utils.LogInfo("[Scanner] Triggering parallel web asset processing for %d URLs on %s", count, t.Value)
 
 											var webWG sync.WaitGroup
-											sem := make(chan struct{}, 10) // Limit to 10 concurrent web asset operations
+											sem := make(chan struct{}, 10)
 
 											for _, w := range webResults {
 												if w.URL == "" {
@@ -588,19 +654,19 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 												webWG.Add(1)
 												go func(webResult modules.HttpxResult) {
 													defer webWG.Done()
-													sem <- struct{}{}        // Acquire semaphore
-													defer func() { <-sem }() // Release semaphore
+													sem <- struct{}{}
+													defer func() { <-sem }()
 
 													// --- Gowitness Screenshot ---
 													if gwInstalled {
-														shotPath, gwOut, err := gowitnessMod.RunSingle(ctx, webResult.URL)
+														shotPath, gwOut, gwErr := gowitnessMod.RunSingle(ctx, webResult.URL)
 														if gwOut != "" {
 															recordResult(db, t.ID, "gowitness", gwOut)
 														}
-														if err != nil {
-															utils.LogDebug("[Scanner] Gowitness failed for %s: %v", webResult.URL, err)
+														if gwErr != nil {
+															utils.LogDebug("[Scanner] Gowitness failed for %s: %v", webResult.URL, gwErr)
 														} else {
-															if _, err := os.Stat(shotPath); err == nil {
+															if _, statErr := os.Stat(shotPath); statErr == nil {
 																db.Model(&database.WebAsset{}).
 																	Where("target_id = ? AND url = ?", t.ID, webResult.URL).
 																	Update("screenshot", shotPath)
@@ -609,7 +675,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 													}
 
 													// --- Katana & URLFinder ---
-													if katOk && katanaMod.CheckInstalled() {
+													if katInstalled {
 														uniquePaths := make(map[string]bool)
 														var pathsList []string
 														var pathsMu sync.Mutex
@@ -624,20 +690,17 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 																	continue
 																}
 																if strings.HasPrefix(line, "http") {
-																	parts := strings.SplitN(line, "://", 2)
-																	if len(parts) == 2 {
-																		pathParts := strings.SplitN(parts[1], "/", 2)
-																		if len(pathParts) == 2 {
-																			pathVal := "/" + pathParts[1]
-																			if !uniquePaths[pathVal] {
-																				uniquePaths[pathVal] = true
-																				pathsList = append(pathsList, pathVal)
-																			}
-																		} else {
-																			if !uniquePaths["/"] {
-																				uniquePaths["/"] = true
-																				pathsList = append(pathsList, "/")
-																			}
+																	u, parseErr := url.Parse(line)
+																	if parseErr == nil && u.Path != "" {
+																		pathVal := u.Path
+																		if !uniquePaths[pathVal] {
+																			uniquePaths[pathVal] = true
+																			pathsList = append(pathsList, pathVal)
+																		}
+																	} else if parseErr == nil {
+																		if !uniquePaths["/"] {
+																			uniquePaths["/"] = true
+																			pathsList = append(pathsList, "/")
 																		}
 																	}
 																} else {
@@ -651,41 +714,37 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 
 														// Run Katana
 														args := []string{"-jc", "-kf", "all", "-fx", "-d", "5", "-pc", "-c", "20"}
-														katanaOutput, err := katanaMod.RunCustom(ctx, webResult.URL, args)
+														katanaOutput, katErr := katanaMod.RunCustom(ctx, webResult.URL, args)
 														recordResult(db, t.ID, "katana", katanaOutput)
-														if err == nil {
+														if katErr == nil {
 															processOutput(katanaOutput)
 														}
 
 														// Run URLFinder
 														if urlInstalled {
-															var hostname string
-															if strings.Contains(webResult.URL, "://") {
-																parts := strings.Split(webResult.URL, "://")
-																if len(parts) > 1 {
-																	subParts := strings.Split(parts[1], "/")
-																	hostname = subParts[0]
-																	if strings.Contains(hostname, ":") {
-																		hParts := strings.Split(hostname, ":")
-																		hostname = hParts[0]
+															u, parseErr := url.Parse(webResult.URL)
+															if parseErr == nil && u.Host != "" {
+																urlHostname := u.Hostname()
+																if urlHostname != "" {
+																	urlOutput, urlErr := urlMod.Run(ctx, urlHostname)
+																	recordResult(db, t.ID, "urlfinder", urlOutput)
+																	if urlErr == nil {
+																		processOutput(urlOutput)
 																	}
-																}
-															}
-															if hostname != "" {
-																urlOutput, err := urlMod.Run(ctx, hostname)
-																recordResult(db, t.ID, "urlfinder", urlOutput)
-																if err == nil {
-																	processOutput(urlOutput)
 																}
 															}
 														}
 
 														// Save combined paths
 														sort.Strings(pathsList)
-														jsonBytes, _ := json.Marshal(pathsList)
-														db.Model(&database.WebAsset{}).
-															Where("target_id = ? AND url = ?", t.ID, webResult.URL).
-															Update("katana_output", string(jsonBytes))
+														jsonBytes, jsonErr := json.Marshal(pathsList)
+														if jsonErr != nil {
+															utils.LogError("[Scanner] Failed to marshal katana paths: %v", jsonErr)
+														} else {
+															db.Model(&database.WebAsset{}).
+																Where("target_id = ? AND url = ?", t.ID, webResult.URL).
+																Update("katana_output", string(jsonBytes))
+														}
 													}
 												}(w)
 											}
@@ -709,10 +768,41 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 		}
 	}
 
-	utils.LogSuccess("[Scanner] Pipeline Completed for %s", parsed.Value)
+	utils.LogSuccess("[Scanner] Pipeline Completed for %s", hostname)
 }
 
-// runCvemapScan looks up CVEs for each detected product (from Nmap) using vulnx
+// extractHeadersFromResponse parses HTTP response headers from raw httpx response string
+func extractHeadersFromResponse(rawResponse string) map[string][]string {
+	headers := make(map[string][]string)
+	if rawResponse == "" {
+		return headers
+	}
+
+	// Response format: HTTP status line, then headers, then blank line, then body
+	parts := strings.SplitN(rawResponse, "\r\n\r\n", 2)
+	if len(parts) == 0 {
+		return headers
+	}
+
+	headerSection := parts[0]
+	lines := strings.Split(headerSection, "\r\n")
+	for i, line := range lines {
+		if i == 0 {
+			continue // Skip HTTP status line
+		}
+		colonIdx := strings.Index(line, ":")
+		if colonIdx == -1 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colonIdx])
+		value := strings.TrimSpace(line[colonIdx+1:])
+		headers[key] = append(headers[key], value)
+	}
+
+	return headers
+}
+
+// runCvemapScan looks up CVEs for each detected product using vulnx
 func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj database.Target) {
 	if ctx.Err() != nil {
 		return
@@ -743,7 +833,6 @@ func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj
 	db.Where("target_id = ? AND tech_stack != ''", targetObj.ID).Find(&webAssets)
 
 	for _, wa := range webAssets {
-		// TechStack is comma-separated — split into individual technologies
 		techs := strings.Split(wa.TechStack, ",")
 		for _, tech := range techs {
 			tech = strings.TrimSpace(tech)
@@ -768,7 +857,6 @@ func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj
 
 		jsonOut, err := cm.SearchProduct(ctx, product)
 
-		// Record raw output regardless of parse success (for Raw Logs tab)
 		if jsonOut != "" {
 			recordResult(db, targetObj.ID, "cvemap", fmt.Sprintf("Product: %s\n%s", product, jsonOut))
 		}
@@ -778,7 +866,10 @@ func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj
 			continue
 		}
 
-		// Parse JSON response (single object with results array)
+		// Parse JSON response (skip if empty — vulnx returns nothing for some products)
+		if jsonOut == "" {
+			continue
+		}
 		var response modules.CvemapResponse
 		if err := json.Unmarshal([]byte(jsonOut), &response); err != nil {
 			utils.LogDebug("[Scanner] Failed to parse Cvemap JSON for %s: %v", product, err)
@@ -824,10 +915,27 @@ func (sm *ScanManager) runCvemapScan(ctx context.Context, db *gorm.DB, targetObj
 	}
 }
 
+// recordResult saves raw tool output to the database with retry on failure
 func recordResult(db *gorm.DB, targetID uint, tool, output string) {
-	db.Create(&database.ScanResult{
+	if output == "" {
+		return
+	}
+	result := db.Create(&database.ScanResult{
 		TargetID: targetID,
 		ToolName: tool,
 		Output:   output,
 	})
+	if result.Error != nil {
+		utils.LogError("[Scanner] Failed to record %s result for target %d: %v", tool, targetID, result.Error)
+		// Retry once after a brief pause (handles transient SQLite locks)
+		time.Sleep(500 * time.Millisecond)
+		retryResult := db.Create(&database.ScanResult{
+			TargetID: targetID,
+			ToolName: tool,
+			Output:   output,
+		})
+		if retryResult.Error != nil {
+			utils.LogError("[Scanner] Retry failed for %s result: %v", tool, retryResult.Error)
+		}
+	}
 }

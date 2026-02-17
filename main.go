@@ -45,7 +45,7 @@ ____  ________________________
 
 	// 1. Initialize Database
 	utils.LogInfo("Initializing Database...")
-	database.InitDB()
+	database.InitDB(*debugMode)
 
 	// 2. Register Modules
 	modules.InitModules()

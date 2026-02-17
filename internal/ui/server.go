@@ -391,6 +391,7 @@ func StartServer(port string) error {
 	r.POST("/asset/:id/scan", func(c *gin.Context) {
 		id := c.Param("id")
 		excludeCF := c.PostForm("exclude_cf") == "on"
+		excludeLocalhost := c.PostForm("exclude_localhost") == "on"
 
 		var asset database.Asset
 		if err := database.GetDB().Preload("Targets").First(&asset, id).Error; err == nil {
@@ -398,7 +399,7 @@ func StartServer(port string) error {
 			for _, t := range asset.Targets {
 				val := t.Value
 				// Run in goroutine to not block
-				go core.RunScan(val, asset.Name, excludeCF)
+				go core.RunScan(val, asset.Name, excludeCF, excludeLocalhost)
 			}
 		}
 		c.Redirect(http.StatusFound, "/asset/"+id)
@@ -486,62 +487,72 @@ func StartServer(port string) error {
 				continue
 			}
 
-			// Basic Validation
-			// Advanced Validation & Check
-			check := core.ResolveAndCheck(tVal) // Performs DNS + CF Check
-
-			if check.Status == "unreachable" && !strings.Contains(tVal, "/") { // specific check for domains failing DNS
-				report = append(report, ImportStatus{Target: tVal, Status: "error", Detail: "Unreachable / DNS Fail"})
-				continue
+			// Normalize: strip scheme, port, path from URLs
+			normalized := core.NormalizeToHostname(tVal)
+			if normalized == "" {
+				normalized = tVal
 			}
+
+			// Determine target type
+			parsed := core.ParseTarget(normalized)
 
 			// Global Duplicate Check
 			var existing database.Target
-			// Use Find() to check existence
-			if db.Where("value = ?", tVal).Limit(1).Find(&existing).RowsAffected > 0 {
-				// Found existing target. Check if its Asset still exists.
+			if db.Where("value = ?", normalized).Limit(1).Find(&existing).RowsAffected > 0 {
 				var existingAsset database.Asset
 				if err := db.Find(&existingAsset, existing.AssetID).Error; err != nil || existingAsset.ID == 0 {
-					// Async/Orphaned Target case (Asset was hard deleted but Target wasn't?)
-					// Or just broken reference. Use Unscoped to be sure we find it if it exists.
-					// Actually, if we are here, it means Target exists. If Asset lookup fails, it's an orphan.
-
-					// We'll treat orphans as non-existent (delete them and allow import)
+					// Orphaned target — delete and allow re-import
 					db.Unscoped().Delete(&existing)
 				} else {
-					// Asset exists, so it is a true duplicate
-					report = append(report, ImportStatus{Target: tVal, Status: "warning", Detail: "Duplicate found in group: " + existingAsset.Name})
+					report = append(report, ImportStatus{Target: normalized, Status: "warning", Detail: "Duplicate found in group: " + existingAsset.Name})
 					continue
 				}
 			}
 
-			// Add New
-			// Use the original value (tVal) but store intelligence
+			// Also check soft-deleted targets and restore if found
+			var softDeleted database.Target
+			if db.Unscoped().Where("value = ? AND deleted_at IS NOT NULL", normalized).Limit(1).Find(&softDeleted).RowsAffected > 0 {
+				// Restore the soft-deleted target
+				db.Unscoped().Model(&softDeleted).Updates(map[string]interface{}{
+					"deleted_at": nil,
+					"asset_id":   asset.ID,
+					"status":     "",
+					"is_alive":   true,
+				})
+				report = append(report, ImportStatus{Target: normalized, Status: "success", Detail: "Restored (was previously removed)"})
+				continue
+			}
+
+			// Add New — no alive check, just store it
 			newTarget := database.Target{
-				AssetID:      asset.ID,
-				Value:        tVal, // Keep input value (domain)
-				Type:         string(core.ParseTarget(tVal).Type),
-				IsCloudflare: check.IsCloudflare,
-				IsAlive:      check.IsAlive,
-				Status:       check.Status,
+				AssetID: asset.ID,
+				Value:   normalized,
+				Type:    string(parsed.Type),
+				IsAlive: true,
+				Status:  "",
 			}
 			db.Create(&newTarget)
-			status := "success"
+
 			detail := "Added successfully"
-			if check.IsCloudflare {
-				detail += " (Cloudflare)"
+			if tVal != normalized {
+				detail += fmt.Sprintf(" (normalized from %s)", tVal)
 			}
-			report = append(report, ImportStatus{Target: tVal, Status: status, Detail: detail})
+			report = append(report, ImportStatus{Target: normalized, Status: "success", Detail: detail})
 		}
 
 		// Reload asset to show new targets
 		db.Preload("Targets").First(&asset, assetID)
 
+		// Query soft-deleted (removed) targets for this asset
+		var removedTargets []database.Target
+		db.Unscoped().Where("asset_id = ? AND deleted_at IS NOT NULL", asset.ID).Find(&removedTargets)
+
 		// Render page with report
 		c.HTML(http.StatusOK, "asset_details.html", getGlobalContext(gin.H{
-			"Page":         "assets",
-			"Asset":        asset,
-			"ImportReport": report,
+			"Page":           "assets",
+			"Asset":          asset,
+			"ImportReport":   report,
+			"RemovedTargets": removedTargets,
 		}))
 	})
 
@@ -566,16 +577,23 @@ func StartServer(port string) error {
 
 	r.GET("/asset/:id", func(c *gin.Context) {
 		id := c.Param("id")
+		db := database.GetDB()
 		var asset database.Asset
 		// Use Find to avoid GORM "record not found" error log
-		database.GetDB().Preload("Targets").Find(&asset, id)
+		db.Preload("Targets").Find(&asset, id)
 		if asset.ID == 0 {
 			c.Redirect(http.StatusFound, "/assets")
 			return
 		}
+
+		// Query soft-deleted (removed) targets for this asset
+		var removedTargets []database.Target
+		db.Unscoped().Where("asset_id = ? AND deleted_at IS NOT NULL", asset.ID).Find(&removedTargets)
+
 		c.HTML(http.StatusOK, "asset_details.html", getGlobalContext(gin.H{
-			"Page":  "assets",
-			"Asset": asset,
+			"Page":           "assets",
+			"Asset":          asset,
+			"RemovedTargets": removedTargets,
 		}))
 	})
 
@@ -871,24 +889,26 @@ func StartServer(port string) error {
 		target := c.PostForm("target")
 		asset := c.PostForm("asset")
 		excludeCF := c.PostForm("exclude_cf") == "on"
+		excludeLocalhost := c.PostForm("exclude_localhost") == "on"
 
 		if target != "" {
-			go core.RunScan(target, asset, excludeCF)
+			go core.RunScan(target, asset, excludeCF, excludeLocalhost)
 		}
 		c.Redirect(http.StatusFound, "/assets")
 	})
 
 	r.POST("/api/scan", func(c *gin.Context) {
 		var req struct {
-			Target    string `json:"target"`
-			Asset     string `json:"asset"`
-			ExcludeCF bool   `json:"exclude_cf"`
+			Target           string `json:"target"`
+			Asset            string `json:"asset"`
+			ExcludeCF        bool   `json:"exclude_cf"`
+			ExcludeLocalhost bool   `json:"exclude_localhost"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		go core.RunScan(req.Target, req.Asset, req.ExcludeCF)
+		go core.RunScan(req.Target, req.Asset, req.ExcludeCF, req.ExcludeLocalhost)
 		c.JSON(http.StatusOK, gin.H{"status": "started"})
 	})
 

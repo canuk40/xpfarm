@@ -10,15 +10,17 @@ import (
 
 var DB *gorm.DB
 
-func InitDB() {
+func InitDB(debug bool) {
 	var err error
 	dbPath := "xpfarm.db"
 
-	// Use absolute path if possible, but for now relative to execution is fine
-	// or we can use the user's home directory. Sticking to current directory as per plan.
+	logMode := logger.Silent
+	if debug {
+		logMode = logger.Info
+	}
 
 	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Error),
+		Logger: logger.Default.LogMode(logMode),
 	})
 	if err != nil {
 		log.Fatal("failed to connect database:", err)
@@ -36,7 +38,7 @@ func InitDB() {
 		if _, err := sqlDB.Exec("PRAGMA cache_size=-64000"); err != nil { // 64MB cache
 			log.Printf("Warning: failed to set cache_size: %v", err)
 		}
-		if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		if _, err := sqlDB.Exec("PRAGMA busy_timeout=10000"); err != nil {
 			log.Printf("Warning: failed to set busy_timeout: %v", err)
 		}
 	}

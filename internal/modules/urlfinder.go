@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -31,12 +32,19 @@ func (u *Urlfinder) Install() error {
 
 func (u *Urlfinder) Run(ctx context.Context, target string) (string, error) {
 	utils.LogInfo("Running urlfinder on %s...", target)
-	// -d target -silent -all
 	path := utils.ResolveBinaryPath("urlfinder")
 	cmd := exec.CommandContext(ctx, path, "-d", target, "-silent", "-all")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("urlfinder failed: %v\nOutput: %s", err, output)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[URLFinder] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+	if err != nil {
+		return stdout.String(), fmt.Errorf("urlfinder failed: %v", err)
+	}
+	return stdout.String(), nil
 }

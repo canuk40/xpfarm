@@ -83,6 +83,13 @@
                         <span class="slider"></span>
                     </label>
                 </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                    <span style="font-size: 0.9rem; color: var(--color-muted);">Exclude Localhost</span>
+                    <label class="switch">
+                        <input type="checkbox" name="exclude_localhost" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
                 <button type="submit" class="btn btn-secondary" style="width: 100%;">Scan All Targets</button>
             </form>
 
@@ -106,6 +113,7 @@
                 <th>Target</th>
                 <th>Type</th>
                 <th>Cloudflare</th>
+                <th>Localhost</th>
                 <th>Last Scanned</th>
                 <th style="width: 100px;">Actions</th>
             </tr>
@@ -132,6 +140,9 @@
                 <td>{{.Type}}</td>
                 <td>{{if .IsCloudflare}}<span class="badge badge-cf">Yes</span>{{else}}<span
                         style="color: var(--color-muted);">No</span>{{end}}</td>
+                <td>{{if .IsLocalhost}}<span class="badge"
+                        style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">Yes</span>{{else}}<span
+                        style="color: var(--color-muted);">No</span>{{end}}</td>
                 <td>{{.UpdatedAt.Format "Jan 02, 2006"}}</td>
                 <td style="display: flex; gap: 5px;">
                     <!-- Edit Button -->
@@ -148,12 +159,64 @@
             </tr>
             {{else}}
             <tr>
-                <td colspan="5" style="text-align: center; color: var(--color-muted);">No targets in this group.</td>
+                <td colspan="6" style="text-align: center; color: var(--color-muted);">No targets in this group.</td>
             </tr>
             {{end}}
         </tbody>
     </table>
 </div>
+
+{{if .RemovedTargets}}
+<div class="card" style="border: 1px solid rgba(239, 68, 68, 0.3);">
+    <h2 style="color: #ef4444; display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.1em;">⊘</span> Removed Targets
+        <span class="badge"
+            style="background: rgba(239, 68, 68, 0.15); color: #ef4444; font-size: 0.75rem; font-weight: 600;">{{len
+            .RemovedTargets}}</span>
+    </h2>
+    <p style="color: var(--color-muted); font-size: 0.85rem; margin-bottom: 12px;">
+        These targets were removed during scanning because they could not be resolved or pointed to localhost.
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Target</th>
+                <th>Type</th>
+                <th>Reason</th>
+                <th>Removed</th>
+                <th style="width: 80px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .RemovedTargets}}
+            <tr>
+                <td style="font-family: monospace; color: var(--color-muted);">{{.Value}}</td>
+                <td>{{.Type}}</td>
+                <td>
+                    {{if eq .Status "resolves to localhost"}}
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">localhost</span>
+                    {{else if eq .Status "unreachable"}}
+                    <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">unreachable</span>
+                    {{else}}
+                    <span class="badge"
+                        style="background: rgba(107, 114, 128, 0.15); color: #6b7280;">{{.Status}}</span>
+                    {{end}}
+                </td>
+                <td style="color: var(--color-muted);">{{.UpdatedAt.Format "Jan 02, 2006"}}</td>
+                <td>
+                    <form action="/asset/{{$.Asset.ID}}/import" method="POST" style="margin: 0; display: inline;">
+                        <input type="hidden" name="raw_text" value="{{.Value}}">
+                        <button type="submit" class="badge"
+                            style="background: none; border: 1px solid var(--color-secondary); color: var(--color-secondary); cursor: pointer;"
+                            title="Re-import this target">↺</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
 
 <!-- Hidden Form to submit updates -->
 <form id="update-form" action="/target/update" method="POST" style="display: none;">

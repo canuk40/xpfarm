@@ -1,9 +1,11 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"xpfarm/pkg/utils"
 )
 
@@ -59,22 +61,69 @@ func (c *Cvemap) Search(ctx context.Context, query string) (string, error) {
 	utils.LogInfo("Querying cvemap (vulnx): %s", query)
 
 	cmd := exec.CommandContext(ctx, path, "search", "--json", "--silent", query)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), fmt.Errorf("cvemap query failed: %v", err)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Cvemap] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+
+	output := strings.TrimSpace(stdout.String())
+	if err != nil {
+		return output, fmt.Errorf("cvemap query failed: %v", err)
+	}
+	return output, nil
 }
 
-// SearchProduct queries vulnx for CVEs matching a specific product name
-// Uses --product, --severity, and --template flags for targeted results
+// SearchProduct queries vulnx for CVEs matching a specific product name.
+// Versions are stripped since vulnx only accepts bare product names.
 func (c *Cvemap) SearchProduct(ctx context.Context, product string) (string, error) {
+	// Strip versions: "drupal:10" → "drupal", "apache/2.4.1" → "apache",
+	// "microsoft asp.net 4.0" → "microsoft asp.net"
+	cleaned := product
+
+	// Handle colon-separated versions (drupal:10, wordpress:6.4)
+	if idx := strings.Index(cleaned, ":"); idx > 0 {
+		cleaned = cleaned[:idx]
+	}
+
+	// Handle slash-separated versions (apache/2.4.1)
+	if idx := strings.Index(cleaned, "/"); idx > 0 {
+		cleaned = cleaned[:idx]
+	}
+
+	// Handle trailing version numbers (e.g. "nginx 1.25.3" → "nginx")
+	// Split by space, drop trailing parts that look like version numbers
+	parts := strings.Fields(cleaned)
+	for len(parts) > 1 {
+		last := parts[len(parts)-1]
+		// Check if the last part starts with a digit (likely a version)
+		if len(last) > 0 && last[0] >= '0' && last[0] <= '9' {
+			parts = parts[:len(parts)-1]
+		} else {
+			break
+		}
+	}
+	cleaned = strings.Join(parts, " ")
+	cleaned = strings.TrimSpace(cleaned)
+
+	if cleaned == "" || len(cleaned) < 2 {
+		return "", fmt.Errorf("product name too short after cleanup: %q → %q", product, cleaned)
+	}
+
 	path := utils.ResolveBinaryPath("vulnx")
-	utils.LogInfo("Querying cvemap (vulnx) for product: %s", product)
+	if product != cleaned {
+		utils.LogInfo("Querying cvemap (vulnx) for product: %s (cleaned from %s)", cleaned, product)
+	} else {
+		utils.LogInfo("Querying cvemap (vulnx) for product: %s", cleaned)
+	}
 
 	args := []string{
 		"search",
-		"--product", product,
+		"--product", cleaned,
 		"--severity", "critical,high,medium",
 		"--template",
 		"--json",
@@ -83,9 +132,19 @@ func (c *Cvemap) SearchProduct(ctx context.Context, product string) (string, err
 	}
 
 	cmd := exec.CommandContext(ctx, path, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), fmt.Errorf("cvemap product query failed for %s: %v", product, err)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Cvemap] stderr: %s", strings.TrimSpace(stderr.String()))
 	}
-	return string(output), nil
+
+	output := strings.TrimSpace(stdout.String())
+	if err != nil {
+		return output, fmt.Errorf("cvemap product query failed for %s: %v", cleaned, err)
+	}
+	return output, nil
 }

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -31,28 +32,42 @@ func (k *Katana) Install() error {
 
 func (k *Katana) Run(ctx context.Context, target string) (string, error) {
 	utils.LogInfo("Running katana on %s...", target)
-	// -u target -jc -kf all -fx -d 5 -pc -c 20 -silent (optimized for speed)
 	path := utils.ResolveBinaryPath("katana")
 	cmd := exec.CommandContext(ctx, path, "-u", target, "-jc", "-kf", "all", "-fx", "-d", "5", "-pc", "-c", "20", "-silent")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("katana failed: %v\nOutput: %s", err, output)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Katana] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+	if err != nil {
+		return stdout.String(), fmt.Errorf("katana failed: %v", err)
+	}
+	return stdout.String(), nil
 }
 
 func (k *Katana) RunCustom(ctx context.Context, target string, args []string) (string, error) {
 	utils.LogInfo("Running katana custom on %s...", target)
 	path := utils.ResolveBinaryPath("katana")
 
-	// Construct args: -u <target> [custom args...]
 	cmdArgs := []string{"-u", target, "-silent"}
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.CommandContext(ctx, path, cmdArgs...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("katana custom failed: %v\nOutput: %s", err, output)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if stderr.Len() > 0 {
+		utils.LogDebug("[Katana] stderr: %s", stderr.String())
 	}
-	return string(output), nil
+	if err != nil {
+		return stdout.String(), fmt.Errorf("katana custom failed: %v", err)
+	}
+	return stdout.String(), nil
 }
