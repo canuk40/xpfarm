@@ -82,7 +82,8 @@
             flex-direction: column;
             padding: 20px;
             flex-shrink: 0;
-            overflow-y: auto;
+            overflow: hidden;
+            /* Hide sidebar scroll, move to nav-links */
             position: relative;
             z-index: 10;
             transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -278,6 +279,11 @@
             padding: 0;
             margin: 0;
             flex-grow: 1;
+            overflow-y: auto;
+            /* Allow nav links to scroll */
+            padding-bottom: 60px;
+            /* Space for toggle button */
+            scrollbar-width: thin;
         }
 
         /* Dropdown Styles */

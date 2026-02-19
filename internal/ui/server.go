@@ -295,6 +295,43 @@ func StartServer(port string) error {
 			Limit(10).
 			Scan(&serviceStats)
 
+		// Vulnerability Stats for Dashboard
+		var vulnTotalCount int64
+		db.Model(&database.Vulnerability{}).Count(&vulnTotalCount)
+
+		type SevCount struct {
+			Severity string
+			Count    int64
+		}
+		var sevCounts []SevCount
+		db.Model(&database.Vulnerability{}).
+			Select("severity, count(*) as count").
+			Group("severity").
+			Scan(&sevCounts)
+
+		vulnStats := gin.H{
+			"Total":    vulnTotalCount,
+			"Critical": int64(0),
+			"High":     int64(0),
+			"Medium":   int64(0),
+			"Low":      int64(0),
+			"Info":     int64(0),
+		}
+		for _, sc := range sevCounts {
+			switch sc.Severity {
+			case "critical":
+				vulnStats["Critical"] = sc.Count
+			case "high":
+				vulnStats["High"] = sc.Count
+			case "medium":
+				vulnStats["Medium"] = sc.Count
+			case "low":
+				vulnStats["Low"] = sc.Count
+			case "info":
+				vulnStats["Info"] = sc.Count
+			}
+		}
+
 		c.HTML(http.StatusOK, "dashboard.html", getGlobalContext(gin.H{
 			"Page": "dashboard",
 			"Stats": gin.H{
@@ -305,6 +342,7 @@ func StartServer(port string) error {
 				"Tech":    techCount,
 				"Tools":   toolsCount,
 			},
+			"VulnStats":     vulnStats,
 			"RecentResults": recentResults,
 			"ChartData": gin.H{
 				"Tools":      toolStats,

@@ -6,7 +6,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./screenshots:/app/screenshots
-      # Mount config/keys if needed?
       # - ./.env:/app/.env 
     environment:
       - GIN_MODE=release

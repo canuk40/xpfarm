@@ -33,3 +33,4 @@ __pycache__/
 screenshots/
 .screenshots/
 *.txt
+*.py

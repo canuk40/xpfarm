@@ -208,8 +208,15 @@
 
                         {{if .KatanaOutput}}
                         <div style="padding: 0 15px 15px 15px;">
-                            <strong style="display:block; margin-bottom: 5px; color: var(--color-muted);">Discovered
-                                Paths:</strong>
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                                <strong style="color: var(--color-muted);">Discovered Paths:</strong>
+                                <button onclick="copyAllPaths('katana-raw-data-{{.ID}}', this)"
+                                    title="Copy all paths to clipboard"
+                                    style="background:none; border:1px solid var(--border-color); border-radius:4px; cursor:pointer; padding:3px 10px; color:var(--color-muted); font-size:0.75rem; transition: all 0.2s;">
+                                    Copy All
+                                </button>
+                            </div>
                             <div id="katana-tree-{{.ID}}"
                                 style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; max-height: 600px; overflow-y: auto;">
                             </div>
@@ -390,27 +397,36 @@
     <!-- Nuclei Findings (Grouped by Severity) -->
     {{if .Target.Vulns}}
     <div class="card" style="margin-bottom: 20px;">
-        <h3 style="margin-bottom: 15px;">Nuclei Findings</h3>
+        <h3 style="margin-bottom: 15px; font-size: 1.15rem;">Nuclei Findings</h3>
         {{range $sev := $.SeverityOrder}}
         {{$vulns := index $.VulnsBySeverity $sev}}
         {{if $vulns}}
-        <div style="border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 10px; padding: 12px;">
+        <div
+            style="border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 12px; padding: 0; background: rgba(255,255,255,0.02);">
             <div onclick="toggleRow('vuln-sev-{{$sev}}')"
-                style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 10px;">
+                style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 14px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
                     {{if eq $sev "critical"}}<span class="badge"
-                        style="background:#7f1d1d;color:#fecaca">{{$sev}}</span>{{else if eq $sev "high"}}<span
-                        class="badge" style="background:#991b1b;color:#fecaca">{{$sev}}</span>{{else if eq $sev
-                    "medium"}}<span class="badge" style="background:#9a3412;color:#fed7aa">{{$sev}}</span>{{else if eq
+                        style="background:#7f1d1d;color:#fecaca;padding:3px 10px;font-size:0.8rem;text-transform:capitalize">{{$sev}}</span>{{else
+                    if eq $sev "high"}}<span class="badge"
+                        style="background:#991b1b;color:#fecaca;padding:3px 10px;font-size:0.8rem;text-transform:capitalize">{{$sev}}</span>{{else
+                    if eq $sev
+                    "medium"}}<span class="badge"
+                        style="background:#9a3412;color:#fed7aa;padding:3px 10px;font-size:0.8rem;text-transform:capitalize">{{$sev}}</span>{{else
+                    if eq
                     $sev "low"}}<span class="badge"
-                        style="background:#166534;color:#bbf7d0">{{$sev}}</span>{{else}}<span class="badge"
-                        style="background:#1e40af;color:#bfdbfe">{{$sev}}</span>{{end}}
-                    <span style="color: var(--color-muted);">{{len $vulns}} findings</span>
+                        style="background:#166534;color:#bbf7d0;padding:3px 10px;font-size:0.8rem;text-transform:capitalize">{{$sev}}</span>{{else}}<span
+                        class="badge"
+                        style="background:#1e40af;color:#bfdbfe;padding:3px 10px;font-size:0.8rem;text-transform:capitalize">{{$sev}}</span>{{end}}
+                    <span style="color: var(--color-muted); font-size: 0.95rem;">{{len $vulns}} findings</span>
                 </div>
-                <span style="color: var(--color-muted); font-size: 1.2rem;">&#9660;</span>
+                <!-- Matched EXACTLY to web assets arrow button (line 183-186) -->
+                <button style="background:none; border:none; cursor:pointer; color: var(--color-primary);">
+                    &#9660;
+                </button>
             </div>
-            <div id="vuln-sev-{{$sev}}" style="display: none; margin-top: 10px;">
-                <table class="table">
+            <div id="vuln-sev-{{$sev}}" style="display: none;">
+                <table class="table" style="width: 100%;">
                     <thead>
                         <tr>
                             <th>Template</th>
@@ -421,12 +437,15 @@
                     </thead>
                     <tbody>
                         {{range $vulns}}
-                        <tr>
-                            <td style="font-family: monospace; font-size: 0.85em; color: var(--color-primary);">
+                        <tr style="transition: background 0.2s;"
+                            onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+                            onmouseout="this.style.background='transparent'">
+                            <td style="font-family: monospace; color: var(--color-primary);">
                                 {{.TemplateID}}</td>
                             <td>{{.Name}}</td>
                             <td>{{.MatcherName}}</td>
-                            <td style="font-size: 0.9em; color: var(--color-muted);">{{.Description}}</td>
+                            <td style="color: var(--color-muted); max-width: 350px;">
+                                {{.Description}}</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -441,76 +460,98 @@
     <!-- Known Product CVEs from Cvemap -->
     {{if .CVEsByProduct}}
     <div class="card">
-        <h3 style="margin-bottom: 15px;">Miscellaneous CVEs for Products</h3>
-        {{range $product, $cves := .CVEsByProduct}}
-        <div style="border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 10px; padding: 12px;">
-            <div onclick="toggleRow('cve-product-{{$product}}')"
-                style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <h4 style="margin: 0; text-transform: capitalize;">{{$product}}</h4>
-                    <span class="badge" style="background: var(--bg-hover); color: white;">{{len $cves}} CVEs</span>
-                </div>
-                <div style="display: flex; gap: 5px; align-items: center;">
-                    {{range $cves}}
-                    {{if eq .Severity "critical"}}<span
-                        style="width:8px;height:8px;border-radius:50%;background:#dc2626;display:inline-block"
-                        title="Critical"></span>
-                    {{else if eq .Severity "high"}}<span
-                        style="width:8px;height:8px;border-radius:50%;background:#f97316;display:inline-block"
-                        title="High"></span>
-                    {{else if eq .Severity "medium"}}<span
-                        style="width:8px;height:8px;border-radius:50%;background:#eab308;display:inline-block"
-                        title="Medium"></span>
-                    {{end}}
-                    {{end}}
-                    <span style="color: var(--color-muted); margin-left: 5px; font-size: 1.2rem;">&#9660;</span>
-                </div>
-            </div>
-            <div id="cve-product-{{$product}}" style="display: none; margin-top: 15px;">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>CVE ID</th>
-                            <th>Severity</th>
-                            <th>CVSS</th>
-                            <th>EPSS</th>
-                            <th>KEV</th>
-                            <th>PoC</th>
-                            <th>Template</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range $cves}}
-                        <tr>
-                            <td><a href="https://nvd.nist.gov/vuln/detail/{{.CveID}}" target="_blank"
-                                    style="color: var(--color-primary);">{{.CveID}}</a></td>
-                            <td>
-                                {{if eq .Severity "critical"}}<span class="badge"
-                                    style="background:#7f1d1d;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity
-                                "high"}}<span class="badge"
-                                    style="background:#991b1b;color:#fecaca">{{.Severity}}</span>{{else if eq .Severity
-                                "medium"}}<span class="badge"
-                                    style="background:#9a3412;color:#fed7aa">{{.Severity}}</span>{{else if eq .Severity
-                                "low"}}<span class="badge"
-                                    style="background:#166534;color:#bbf7d0">{{.Severity}}</span>{{else}}<span
-                                    class="badge" style="background:#1e40af;color:#bfdbfe">{{.Severity}}</span>{{end}}
-                            </td>
-                            <td style="font-family: monospace;">{{printf "%.1f" .CvssScore}}</td>
-                            <td style="font-family: monospace;">{{printf "%.4f" .EpssScore}}</td>
-                            <td>{{if .IsKEV}}<span style="color:#ef4444;font-weight:bold">&#10003;</span>{{else}}<span
-                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
-                            <td>{{if .HasPOC}}<span style="color:#f59e0b;font-weight:bold">&#10003;</span>{{else}}<span
-                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
-                            <td>{{if .HasTemplate}}<span
-                                    style="color:var(--color-secondary);font-weight:bold">&#10003;</span>{{else}}<span
-                                    style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
+        <div onclick="toggleRow('cve-products-section')"
+            style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">Miscellaneous CVEs for Products</h3>
+            <!-- Matched EXACTLY to web assets arrow button -->
+            <button style="background:none; border:none; cursor:pointer; color: var(--color-primary);">
+                &#9660;
+            </button>
         </div>
-        {{end}}
+        <div id="cve-products-section" style="display: none; margin-top: 15px;">
+            {{range $product, $cves := .CVEsByProduct}}
+            <div
+                style="border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 12px; padding: 0; background: rgba(255,255,255,0.02);">
+                <div onclick="toggleRow('cve-product-{{$product}}')"
+                    style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 14px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h4 style="margin: 0; text-transform: capitalize;">{{$product}}</h4>
+                        <span class="badge" style="background: var(--bg-hover); color: white;">{{len $cves}} CVEs</span>
+                    </div>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        {{range $cves}}
+                        {{if eq .Severity "critical"}}<span
+                            style="width:8px;height:8px;border-radius:50%;background:#dc2626;display:inline-block"
+                            title="Critical"></span>
+                        {{else if eq .Severity "high"}}<span
+                            style="width:8px;height:8px;border-radius:50%;background:#f97316;display:inline-block"
+                            title="High"></span>
+                        {{else if eq .Severity "medium"}}<span
+                            style="width:8px;height:8px;border-radius:50%;background:#eab308;display:inline-block"
+                            title="Medium"></span>
+                        {{end}}
+                        {{end}}
+                        <!-- Matched EXACTLY to web assets arrow button -->
+                        <button
+                            style="background:none; border:none; cursor:pointer; color: var(--color-primary); margin-left: 5px;">
+                            &#9660;
+                        </button>
+                    </div>
+                </div>
+                <div id="cve-product-{{$product}}" style="display: none;">
+                    <table class="table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>CVE ID</th>
+                                <th>Severity</th>
+                                <th>CVSS</th>
+                                <th>EPSS</th>
+                                <th>KEV</th>
+                                <th>PoC</th>
+                                <th>Template</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range $cves}}
+                            <tr style="transition: background 0.2s;"
+                                onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+                                onmouseout="this.style.background='transparent'">
+                                <td><a href="https://nvd.nist.gov/vuln/detail/{{.CveID}}" target="_blank"
+                                        style="color: var(--color-primary);">{{.CveID}}</a></td>
+                                <td>
+                                    {{if eq .Severity "critical"}}<span class="badge"
+                                        style="background:#7f1d1d;color:#fecaca">{{.Severity}}</span>{{else if eq
+                                    .Severity
+                                    "high"}}<span class="badge"
+                                        style="background:#991b1b;color:#fecaca">{{.Severity}}</span>{{else if eq
+                                    .Severity
+                                    "medium"}}<span class="badge"
+                                        style="background:#9a3412;color:#fed7aa">{{.Severity}}</span>{{else if eq
+                                    .Severity
+                                    "low"}}<span class="badge"
+                                        style="background:#166534;color:#bbf7d0">{{.Severity}}</span>{{else}}<span
+                                        class="badge"
+                                        style="background:#1e40af;color:#bfdbfe">{{.Severity}}</span>{{end}}
+                                </td>
+                                <td style="font-family: monospace;">{{printf "%.1f" .CvssScore}}</td>
+                                <td style="font-family: monospace;">{{printf "%.4f" .EpssScore}}</td>
+                                <td>{{if .IsKEV}}<span
+                                        style="color:#ef4444;font-weight:bold">&#10003;</span>{{else}}<span
+                                        style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                                <td>{{if .HasPOC}}<span
+                                        style="color:#f59e0b;font-weight:bold">&#10003;</span>{{else}}<span
+                                        style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                                <td>{{if .HasTemplate}}<span
+                                        style="color:var(--color-secondary);font-weight:bold">&#10003;</span>{{else}}<span
+                                        style="color:var(--color-muted)">&#10007;</span>{{end}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {{end}}
+        </div>
     </div>
     {{end}}
 
@@ -647,6 +688,38 @@
     function closeImage() {
         var modal = document.getElementById("imgModal");
         modal.style.display = "none";
+    }
+
+    function copyAllPaths(dataId, btn) {
+        var rawEl = document.getElementById(dataId);
+        if (!rawEl) return;
+        var rawContent = rawEl.textContent;
+        var paths = [];
+        try {
+            paths = JSON.parse(rawContent);
+        } catch (e) {
+            paths = rawContent;
+        }
+        if (typeof paths === 'string') {
+            var trimmed = paths.trim();
+            if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                try { paths = JSON.parse(trimmed); } catch (e) { paths = trimmed.split(/\r?\n/); }
+            } else {
+                paths = trimmed.split(/\r?\n/);
+            }
+        }
+        if (Array.isArray(paths)) {
+            paths = paths.filter(function (p) { return p && typeof p === 'string' && p.trim() !== ''; });
+        } else {
+            paths = [];
+        }
+        if (paths.length === 0) return;
+        navigator.clipboard.writeText(paths.join('\n')).then(function () {
+            var orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.style.color = '#10b981';
+            setTimeout(function () { btn.textContent = orig; btn.style.color = 'var(--color-muted)'; }, 1500);
+        });
     }
 </script>
 {{end}}
