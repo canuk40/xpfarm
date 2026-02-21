@@ -953,6 +953,13 @@ func (sm *ScanManager) runNucleiScan(ctx context.Context, db *gorm.DB, targetObj
 		if output != "" {
 			recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("Network scan %s [tags: %s]\n%s", scan.Target, strings.Join(scan.Tags, ","), output))
 		}
+
+		if strings.Contains(output, "no templates provided for scan") {
+			utils.LogInfo("[Scanner] [Nuclei] No templates found for tags %v on %s, falling back to auto-scan", scan.Tags, scan.Target)
+			plan.FallbackURLs = append(plan.FallbackURLs, scan.Target)
+			// Proceed to parse (though it will be empty) or just continue, but keeping the flow is fine.
+		}
+
 		if err != nil {
 			utils.LogDebug("[Scanner] [Nuclei] Network scan error for %s: %v", scan.Target, err)
 			// Don't skip — partial output may have findings
@@ -1009,10 +1016,10 @@ func (sm *ScanManager) runNucleiScan(ctx context.Context, db *gorm.DB, targetObj
 			tmpFile.Close()
 			defer os.Remove(tmpFile.Name())
 
-			utils.LogInfo("[Scanner] [Nuclei] Running automatic web scan on %d URLs for %s", len(plan.WebURLs), targetObj.Value)
-			output, err := nm.RunAutoScan(ctx, tmpFile.Name())
+			utils.LogInfo("[Scanner] [Nuclei] Running default web scan on %d URLs for %s", len(plan.WebURLs), targetObj.Value)
+			output, err := nm.RunDefaultScan(ctx, tmpFile.Name())
 			if output != "" {
-				recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("Web auto-scan (%d URLs)\n%s", len(plan.WebURLs), output))
+				recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("Web default scan (%d URLs)\n%s", len(plan.WebURLs), output))
 			}
 			if err != nil {
 				utils.LogDebug("[Scanner] [Nuclei] Web scan error for %s: %v", targetObj.Value, err)

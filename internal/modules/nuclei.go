@@ -30,6 +30,29 @@ func (n *Nuclei) Install() error {
 	return nil
 }
 
+func (n *Nuclei) UpdateTemplates() error {
+	path := utils.ResolveBinaryPath("nuclei")
+	cmd := exec.Command(path, "-ut") // Update templates
+	cmd.Stdout = utils.GetInfoWriter()
+	cmd.Stderr = utils.GetInfoWriter()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to update nuclei templates: %v", err)
+	}
+	return nil
+}
+
+func (n *Nuclei) GetTemplateVersion() (string, error) {
+	path := utils.ResolveBinaryPath("nuclei")
+	// nuclei -tv prints the template version
+	cmd := exec.Command(path, "-tv", "-silent")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get nuclei template version: %v", err)
+	}
+	// Output is usually just the version string, e.g., "v10.3.0"
+	return strings.TrimSpace(string(output)), nil
+}
+
 // Run satisfies the Module interface — runs a basic scan against a single target.
 func (n *Nuclei) Run(ctx context.Context, target string) (string, error) {
 	return n.RunRaw(ctx, []string{"-u", target, "-jsonl", "-silent"})
@@ -64,6 +87,11 @@ func (n *Nuclei) RunWithTags(ctx context.Context, target string, tags []string, 
 // RunAutoScan runs nuclei with -as (automatic wappalyzer-based template selection).
 func (n *Nuclei) RunAutoScan(ctx context.Context, urlsFile string) (string, error) {
 	return n.RunRaw(ctx, []string{"-l", urlsFile, "-as", "-jsonl", "-silent"})
+}
+
+// RunDefaultScan runs nuclei with default templates (no -as limit) against a list of URLs.
+func (n *Nuclei) RunDefaultScan(ctx context.Context, urlsFile string) (string, error) {
+	return n.RunRaw(ctx, []string{"-l", urlsFile, "-jsonl", "-silent"})
 }
 
 // RunSSLScan runs nuclei with SSL protocol type templates.

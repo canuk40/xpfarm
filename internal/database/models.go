@@ -7,12 +7,14 @@ import (
 )
 
 type Asset struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	Name      string         `gorm:"uniqueIndex" json:"name"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-	Targets   []Target       `gorm:"foreignKey:AssetID" json:"targets"`
+	ID                uint           `gorm:"primaryKey" json:"id"`
+	Name              string         `gorm:"uniqueIndex" json:"name"`
+	AdvancedMode      bool           `json:"advanced_mode"`
+	AdvancedTemplates string         `json:"advanced_templates"` // Comma-separated template IDs
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+	Targets           []Target       `gorm:"foreignKey:AssetID" json:"targets"`
 }
 
 type Target struct {
@@ -131,4 +133,17 @@ type SavedSearch struct {
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type NucleiTemplate struct {
+	ID         uint           `gorm:"primaryKey" json:"id"`
+	TemplateID string         `gorm:"uniqueIndex" json:"template_id"`
+	Name       string         `json:"name"`
+	Severity   string         `gorm:"index" json:"severity"`
+	Tags       string         `json:"tags"`      // Comma-separated tags
+	FilePath   string         `json:"file_path"` // Relative to nuclei-templates root
+	Protocols  string         `json:"protocols"` // e.g., "http,tcp"
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }

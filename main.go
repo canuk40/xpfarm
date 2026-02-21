@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"xpfarm/internal/core"
 	"xpfarm/internal/database"
 	"xpfarm/internal/modules"
 	"xpfarm/internal/ui"
@@ -80,7 +81,11 @@ ____  ________________________
 	// 4. Check for Updates
 	modules.RunUpdates()
 
-	// 5. Start Web Server
+	// 5. Check and Index Nuclei Templates
+	utils.LogInfo("Checking Nuclei Templates version...")
+	go core.CheckAndIndexTemplates(database.GetDB())
+
+	// 6. Start Web Server
 	port := "8888"
 	utils.LogSuccess("Starting Web Interface on port %s...", utils.Bold(port))
 	utils.LogSuccess("Access at %s", utils.Bold("http://localhost:"+port))

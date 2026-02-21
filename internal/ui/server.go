@@ -67,7 +67,7 @@ func StartServer(port string) error {
 		return err
 	}
 
-	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "search.html"}
+	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "search.html", "advanced_scan.html"}
 
 	for _, page := range pages {
 		pageContent, err := f.ReadFile("templates/" + page)
@@ -680,6 +680,137 @@ func StartServer(port string) error {
 		}))
 	})
 
+	r.GET("/asset/:id/advanced", func(c *gin.Context) {
+		id := c.Param("id")
+		db := database.GetDB()
+		var asset database.Asset
+		db.Preload("Targets").Find(&asset, id)
+		if asset.ID == 0 {
+			c.Redirect(http.StatusFound, "/assets")
+			return
+		}
+
+		var allTemplates []database.NucleiTemplate
+		db.Find(&allTemplates)
+
+		// Create a lookup map for pre-selecting checkboxes
+		selectedMap := make(map[string]bool)
+		for _, tID := range strings.Split(asset.AdvancedTemplates, ",") {
+			id := strings.TrimSpace(tID)
+			if id != "" {
+				selectedMap[id] = true
+			}
+		}
+
+		// Structs for ordered rendering
+		type SubFolderGroup struct {
+			Name      string
+			Templates []database.NucleiTemplate
+		}
+		type TabGroup struct {
+			Name       string
+			TotalCount int
+			SubFolders []SubFolderGroup
+		}
+
+		// 1. Group by Tab -> Subfolder -> Templates using maps first
+		tempMap := make(map[string]map[string][]database.NucleiTemplate)
+		for _, t := range allTemplates {
+			parts := strings.Split(t.FilePath, string(os.PathSeparator))
+			if len(parts) == 0 {
+				continue
+			}
+
+			folder := parts[0]
+			subfolder := "Generic"
+
+			if len(parts) > 2 {
+				// e.g., ssl/c2/template.yaml -> parts = ["ssl", "c2", "template.yaml"]
+				subfolder = parts[1]
+			}
+
+			if tempMap[folder] == nil {
+				tempMap[folder] = make(map[string][]database.NucleiTemplate)
+			}
+			tempMap[folder][subfolder] = append(tempMap[folder][subfolder], t)
+		}
+
+		// 2. Convert to sorted slices
+		var tabs []TabGroup
+		for folderName, subMap := range tempMap {
+			var subs []SubFolderGroup
+			var genericIdx = -1
+			totalCount := 0
+
+			// Extract all subfolders into slice
+			for subName, tmpls := range subMap {
+				// Sort templates inside the subfolder alphabetically by TemplateID
+				sort.Slice(tmpls, func(i, j int) bool {
+					return tmpls[i].TemplateID < tmpls[j].TemplateID
+				})
+
+				subs = append(subs, SubFolderGroup{
+					Name:      subName,
+					Templates: tmpls,
+				})
+				totalCount += len(tmpls)
+			}
+
+			// Sort subfolders alphabetically
+			sort.Slice(subs, func(i, j int) bool {
+				return subs[i].Name < subs[j].Name
+			})
+
+			// Find Generic and move it to the front
+			for i, s := range subs {
+				if s.Name == "Generic" {
+					genericIdx = i
+					break
+				}
+			}
+
+			if genericIdx > 0 {
+				genericSub := subs[genericIdx]
+				subs = append(subs[:genericIdx], subs[genericIdx+1:]...) // Remove
+				subs = append([]SubFolderGroup{genericSub}, subs...)     // Prepend
+			}
+
+			tabs = append(tabs, TabGroup{
+				Name:       folderName,
+				TotalCount: totalCount,
+				SubFolders: subs,
+			})
+		}
+
+		// Sort tabs alphabetically
+		sort.Slice(tabs, func(i, j int) bool {
+			return tabs[i].Name < tabs[j].Name
+		})
+
+		c.HTML(http.StatusOK, "advanced_scan.html", getGlobalContext(gin.H{
+			"Page":        "assets",
+			"Asset":       asset,
+			"Tabs":        tabs,
+			"SelectedMap": selectedMap,
+		}))
+	})
+
+	r.POST("/asset/:id/advanced/save", func(c *gin.Context) {
+		id := c.Param("id")
+		c.Request.ParseForm()
+
+		enableAdvanced := c.PostForm("enable_advanced") == "on"
+		selectedTemplates := c.Request.Form["templates[]"]
+
+		db := database.GetDB()
+		db.Model(&database.Asset{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"advanced_mode":      enableAdvanced,
+			"advanced_templates": strings.Join(selectedTemplates, ","),
+		})
+
+		c.Redirect(http.StatusFound, "/asset/"+id)
+	})
+
 	// Modules
 	r.GET("/modules", func(c *gin.Context) {
 		allMods := modules.GetAll()
@@ -1053,6 +1184,40 @@ func StartServer(port string) error {
 		} else {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "asset name required"})
 		}
+	})
+
+	// Nuclei Templates
+	r.GET("/api/nuclei/templates", func(c *gin.Context) {
+		var templates []database.NucleiTemplate
+		// Optional search query parameter
+		query := c.Query("q")
+		db := database.GetDB()
+		if query != "" {
+			search := "%" + query + "%"
+			db.Where("name LIKE ? OR template_id LIKE ? OR tags LIKE ?", search, search, search).Find(&templates)
+		} else {
+			db.Find(&templates)
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"count":     len(templates),
+			"templates": templates,
+		})
+	})
+
+	r.POST("/api/nuclei/templates/refresh", func(c *gin.Context) {
+		err := core.IndexNucleiTemplates(database.GetDB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		var count int64
+		database.GetDB().Model(&database.NucleiTemplate{}).Count(&count)
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "indexed",
+			"count":  count,
+		})
 	})
 
 	return r.Run(":" + port)

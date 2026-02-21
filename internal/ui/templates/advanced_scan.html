@@ -1,0 +1,224 @@
+{{define "title"}}Advanced Scan Settings - {{.Asset.Name}} - XPFarm{{end}}
+{{template "layout.html" .}}
+{{define "content"}}
+<div style="margin-bottom: 20px;">
+    <a href="/asset/{{.Asset.ID}}" style="color: var(--color-muted); text-decoration: none;">&larr; Back to Asset</a>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div>
+            <h1 style="margin-bottom: 5px;">Advanced Config: {{.Asset.Name}}</h1>
+            <p style="color: var(--color-muted); font-size: 0.9rem; margin: 0;">Configure specific Nuclei templates to
+                run during the scan.</p>
+        </div>
+        <div style="text-align: right; display: flex; align-items: center; gap: 15px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 0.95rem;">Advanced Scan</span>
+                <label class="switch">
+                    <input type="checkbox" id="enable-advanced-scan" form="advanced-scan-form" name="enable_advanced"
+                        onchange="toggleFormState()" {{if .Asset.AdvancedMode}}checked{{end}}>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <form id="advanced-scan-form" action="/asset/{{.Asset.ID}}/advanced/save" method="POST" style="margin: 0;">
+                <button type="submit" id="start-scan-btn" class="btn btn-primary"
+                    style="padding: 5px 15px; font-size: 0.9rem;">Save Configuration</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="tabs" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color);" id="template-tabs">
+    {{$first := true}}
+    {{range .Tabs}}
+    <button class="tab-btn {{if $first}}active{{end}}" onclick="showTab(event, 'tab-folder-{{.Name}}')"
+        {{$first = false}}>
+        {{.Name}} <span class="badge" style="background:var(--bg-hover); color:white;">{{.TotalCount}}</span>
+    </button>
+    {{end}}
+</div>
+
+<div id="templates-container">
+    {{$firstTab := true}}
+    {{range .Tabs}}
+    {{$folderName := .Name}}
+    <div id="tab-folder-{{.Name}}" class="tab-content" style="display: {{if $firstTab}}block{{else}}none{{end}};">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>{{.Name}} Templates</h3>
+            <button type="button" class="btn btn-secondary select-all-btn" onclick="toggleSelectAll('{{.Name}}')"
+                style="padding: 4px 10px; font-size: 0.8rem;" disabled>Select All</button>
+        </div>
+
+        {{range .SubFolders}}
+        <details class="card" style="margin-bottom: 10px; background: var(--bg-hover); cursor: pointer;" {{if eq
+            .Name "Generic" }}open{{end}}>
+            <summary
+                style="padding: 10px; font-weight: bold; border-bottom: 1px solid var(--border-color); color: var(--color-muted); outline: none;">
+                {{.Name}}
+            </summary>
+            <table class="table" style="width: 100%; cursor: default;">
+                <tbody>
+                    {{range .Templates}}
+                    <tr style="transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+                        onmouseout="this.style.background='transparent'">
+                        <td style="width: 60px; text-align: center;">
+                            <label class="switch" style="margin: 0;">
+                                <input type="checkbox" class="template-checkbox folder-{{$folderName}}"
+                                    name="templates[]" value="{{.TemplateID}}" form="advanced-scan-form" {{if index
+                                    $.SelectedMap .TemplateID}}checked{{end}} disabled>
+                                <span class="slider"></span>
+                            </label>
+                        </td>
+                        <td style="font-family: monospace; color: var(--color-primary); padding-left: 0;">
+                            {{.TemplateID}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </details>
+        {{end}}
+
+    </div>
+    {{$firstTab = false}}
+    {{end}}
+</div>
+
+<style>
+    .tab-btn {
+        background: transparent;
+        border: none;
+        color: var(--color-muted);
+        padding: 10px 20px;
+        cursor: pointer;
+        font-size: 1rem;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+        color: white;
+    }
+
+    .tab-btn.active {
+        color: white;
+        border-bottom: 2px solid var(--color-primary);
+    }
+
+    .tab-content {
+        animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(5px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .table th,
+    .table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .table th {
+        color: var(--color-muted);
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        background: var(--bg-hover);
+        text-transform: capitalize;
+    }
+
+    /* Disabled state styling */
+    .disabled-overlay {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+</style>
+
+<script>
+    function showTab(evt, tabName) {
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tab-content");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+        tablinks = document.getElementsByClassName("tab-btn");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+        document.getElementById(tabName).style.display = "block";
+        if (evt && evt.currentTarget) {
+            evt.currentTarget.className += " active";
+        } else {
+            for (i = 0; i < tablinks.length; i++) {
+                if (tablinks[i].getAttribute('onclick').includes(tabName)) {
+                    tablinks[i].className += " active";
+                }
+            }
+        }
+        sessionStorage.setItem('activeAdvancedTab-{{.Asset.ID}}', tabName);
+    }
+
+    function toggleFormState() {
+        const isEnabled = document.getElementById('enable-advanced-scan').checked;
+        const checkboxes = document.querySelectorAll('.template-checkbox');
+        const selectAllBtns = document.querySelectorAll('.select-all-btn');
+        const startScanBtn = document.getElementById('start-scan-btn');
+        const templatesContainer = document.getElementById('templates-container');
+
+        checkboxes.forEach(cb => cb.disabled = !isEnabled);
+        selectAllBtns.forEach(btn => btn.disabled = !isEnabled);
+
+        if (isEnabled) {
+            templatesContainer.classList.remove('disabled-overlay');
+        } else {
+            templatesContainer.classList.add('disabled-overlay');
+        }
+    }
+
+    function toggleSelectAll(folder) {
+        const checkboxes = document.querySelectorAll(`.folder-${folder}`);
+        let allChecked = true;
+
+        checkboxes.forEach(cb => {
+            if (!cb.checked) allChecked = false;
+        });
+
+        checkboxes.forEach(cb => {
+            cb.checked = !allChecked;
+        });
+    }
+
+    // Initialize state on load
+    document.addEventListener("DOMContentLoaded", function () {
+        toggleFormState();
+
+        const savedTab = sessionStorage.getItem('activeAdvancedTab-{{.Asset.ID}}');
+        if (savedTab && document.getElementById(savedTab)) {
+            showTab(null, savedTab);
+        }
+    });
+</script>
+{{end}}

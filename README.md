@@ -31,19 +31,13 @@ docker run -p 8888:8888 -v $(pwd)/data:/app/data -v $(pwd)/screenshots:/app/scre
 - [x] Redefine scan
 - [x] Vuln scan change
 - [ ] Vuln scan refine
+- [ ] Vuln scan choose/Scan Settings
 - [x] Global Search
-- [ ] Scan Settings
+- [ ] Global Search refine
+- [ ] Save State tabs
 - [ ] System Settings
 - [ ] SecretFinder JS
 - [ ] Repo detect/scan
 - [ ] Mobile scan
 - [ ] Custom Module
 - [ ] Agent Hell
-
-Can we add something to the dashboard, just below Assets & Targets called Global Search. 
-This should be a very dynamic search and super modular to allow searching for results based on all information we have. 
-
-Make the search easy to understand and add mutiple fields types etc. 
-So like search for tech stack X and Y in all assets where status code A and directories contain *.js 
-
-As an example, this should be super customisable search, seeing as there might be 10s of thousands of results. 

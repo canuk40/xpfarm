@@ -47,6 +47,59 @@
         style="background: #ef4444; color: white; border: none;">Stop All Scans</button>
 </div>
 
+<!-- Configure Scan Settings -->
+<div class="card" style="margin-bottom: 20px;">
+    <h2>Configure Scan Settings</h2>
+
+    <div style="display: flex; gap: 40px; align-items: start;">
+        <!-- Basic Settings -->
+        <div style="flex: 1; max-width: 300px;">
+            <p style="color: var(--color-muted); font-size: 0.9rem; margin-bottom: 15px;">Default exclusions applied to
+                all scans in this group.</p>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <span style="font-size: 0.95rem;">Exclude Cloudflare <span
+                        style="font-size: 0.8rem; color: var(--color-muted);">(Skip CDN IPs)</span></span>
+                <label class="switch">
+                    <input type="checkbox" form="scan-form" name="exclude_cf" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <span style="font-size: 0.95rem;">Exclude Localhost <span
+                        style="font-size: 0.8rem; color: var(--color-muted);">(Skip internal IPs)</span></span>
+                <label class="switch">
+                    <input type="checkbox" form="scan-form" name="exclude_localhost" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Advanced Settings -->
+        <div style="flex: 2; border-left: 1px solid var(--border-color); padding-left: 40px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <div>
+                    <h3 style="margin: 0; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;">
+                        Advanced Configure
+                        {{if .Asset.AdvancedMode}}
+                        <span class="badge"
+                            style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.7rem; padding: 2px 6px; font-weight: normal;">Custom</span>
+                        {{else}}
+                        <span class="badge"
+                            style="background: var(--bg-hover); color: var(--color-muted); font-size: 0.7rem; padding: 2px 6px; font-weight: normal;">Basic</span>
+                        {{end}}
+                    </h3>
+                    <p style="color: var(--color-muted); font-size: 0.9rem; margin: 0;">Override default scan logic with
+                        specific Nuclei templates.</p>
+                </div>
+                <a href="/asset/{{.Asset.ID}}/advanced" class="btn btn-secondary"
+                    style="text-decoration: none;">Configure</a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Manage Asset (Moved Top) -->
 <div class="card">
     <h2>Manage Asset</h2>
@@ -75,21 +128,7 @@
             <h3>Actions</h3>
 
             <!-- Scan All -->
-            <form action="/asset/{{.Asset.ID}}/scan" method="POST" style="margin: 0;">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                    <span style="font-size: 0.9rem; color: var(--color-muted);">Exclude Cloudflare</span>
-                    <label class="switch">
-                        <input type="checkbox" name="exclude_cf" checked>
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                    <span style="font-size: 0.9rem; color: var(--color-muted);">Exclude Localhost</span>
-                    <label class="switch">
-                        <input type="checkbox" name="exclude_localhost" checked>
-                        <span class="slider"></span>
-                    </label>
-                </div>
+            <form id="scan-form" action="/asset/{{.Asset.ID}}/scan" method="POST" style="margin: 0;">
                 <button type="submit" class="btn btn-secondary" style="width: 100%;">Scan All Targets</button>
             </form>
 
@@ -225,6 +264,16 @@
 </form>
 
 <script>
+    function toggleAdvancedSettings() {
+        const toggle = document.getElementById('advanced-toggle');
+        const panel = document.getElementById('advanced-settings-panel');
+        if (toggle.checked) {
+            panel.style.display = 'block';
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
     function toggleEdit(id, show) {
         const row = document.getElementById('row-' + id);
         const display = row.querySelector('.display-mode');
@@ -316,52 +365,6 @@
             transform: scale(0.95);
             box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
         }
-    }
-
-    /* Switch Styling */
-    .switch {
-        position: relative;
-        display: inline-block;
-        width: 36px;
-        height: 20px;
-    }
-
-    .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-
-    .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--bg-hover);
-        transition: .3s;
-        border-radius: 20px;
-    }
-
-    .slider:before {
-        position: absolute;
-        content: "";
-        height: 14px;
-        width: 14px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: .3s;
-        border-radius: 50%;
-    }
-
-    input:checked+.slider {
-        background-color: var(--color-primary);
-    }
-
-    input:checked+.slider:before {
-        transform: translateX(16px);
     }
 </style>
 {{end}}
