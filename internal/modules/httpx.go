@@ -17,6 +17,10 @@ func (h *Httpx) Name() string {
 	return "httpx"
 }
 
+func (h *Httpx) Description() string {
+	return "Httpx is a fast and multi-purpose HTTP toolkit. It probes discovered raw ports to definitively identify which are hosting active web servers, extracting vital metadata like status codes, server headers, and titles."
+}
+
 func (h *Httpx) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("httpx")
 	_, err := exec.LookPath(path)

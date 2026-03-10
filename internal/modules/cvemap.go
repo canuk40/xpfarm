@@ -15,6 +15,10 @@ func (c *Cvemap) Name() string {
 	return "cvemap"
 }
 
+func (c *Cvemap) Description() string {
+	return "Cvemap is a vulnerability mapping tool. It searches localized databases for known CVEs matching the precise product software and versions identified during the port scanning phase by Nmap."
+}
+
 func (c *Cvemap) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("vulnx")
 	_, err := exec.LookPath(path)

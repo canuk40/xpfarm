@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"gorm.io/gorm"
 	"xpfarm/internal/database"
 )
 
@@ -50,12 +51,19 @@ func GlobalSearch(payload SearchPayload) ([]SearchResult, error) {
 		Joins("left join web_assets on web_assets.target_id = targets.id").
 		Joins("left join ports on ports.target_id = targets.id").
 		Joins("left join vulnerabilities on vulnerabilities.target_id = targets.id").
+		Joins("left join cves on cves.target_id = targets.id").
 		Group("targets.id") // Ensure we don't get massive duplication from joins
 
 	var goRegexFilters []func(t *database.Target) bool
 
+	// Conditionally group all rules to prevent OR clause bleed
+	var ruleGroup *gorm.DB
+
+	// Pre-check if any valid rules exist
+	hasValidRules := false
+
 	// Parse Rules into GORM scopes
-	for i, rule := range payload.Rules {
+	for _, rule := range payload.Rules {
 		dbFieldStr := mapFieldToDB(rule.Field)
 		if dbFieldStr == "" {
 			continue
@@ -77,30 +85,44 @@ func GlobalSearch(payload SearchPayload) ([]SearchResult, error) {
 				return checkRegexMatch(t, f, compiled)
 			})
 			// Try to narrow SQL side with IS NOT NULL or LIKE '%' as dummy to keep it syntactically active
-			// if it was connected with AND, but for OR it's complex.
-			// For simplicity: we skip adding an SQL clause for REGEX,
-			// meaning it fetches more data, then we cull in Go.
-			// BUT if this is an OR, skipping it breaks the SQL logic.
-			// Let's at least enforce the field is not null.
-			if i == 0 || rule.Logical == "AND" {
-				query = query.Where(dbFieldStr + " IS NOT NULL AND " + dbFieldStr + " != ''")
-			} else if rule.Logical == "OR" {
-				query = query.Or(dbFieldStr + " IS NOT NULL AND " + dbFieldStr + " != ''")
+			if !hasValidRules {
+				ruleGroup = db.Where(dbFieldStr + " IS NOT NULL AND " + dbFieldStr + " != ''")
+			} else {
+				if rule.Logical == "OR" {
+					ruleGroup = ruleGroup.Or(dbFieldStr + " IS NOT NULL AND " + dbFieldStr + " != ''")
+				} else {
+					ruleGroup = ruleGroup.Where(dbFieldStr + " IS NOT NULL AND " + dbFieldStr + " != ''")
+				}
 			}
+			hasValidRules = true
 			continue
 		}
 
 		condition := fmt.Sprintf("%s %s ?", dbFieldStr, opStr)
 
-		if i == 0 || rule.Logical == "AND" {
-			query = query.Where(condition, val)
-		} else if rule.Logical == "OR" {
-			query = query.Or(condition, val)
+		// For robust case-insensitive matching across database engines where LIKE may be case-sensitive
+		if opStr == "LIKE" || opStr == "NOT LIKE" {
+			condition = fmt.Sprintf("LOWER(%s) %s LOWER(?)", dbFieldStr, opStr)
 		}
+
+		if !hasValidRules {
+			ruleGroup = db.Where(condition, val)
+		} else {
+			if rule.Logical == "OR" {
+				ruleGroup = ruleGroup.Or(condition, val)
+			} else {
+				ruleGroup = ruleGroup.Where(condition, val)
+			}
+		}
+		hasValidRules = true
+	}
+
+	if hasValidRules {
+		query = query.Where(ruleGroup)
 	}
 
 	// Preload necessary relations to extract data for the results table
-	query = query.Preload("Asset").Preload("WebAssets").Preload("Ports").Preload("Vulns")
+	query = query.Preload("Asset").Preload("WebAssets").Preload("Ports").Preload("Vulns").Preload("CVEs")
 
 	var targets []database.Target
 	if err := query.Find(&targets).Error; err != nil {
@@ -150,6 +172,10 @@ func mapFieldToDB(frontendField string) string {
 		return "vulnerabilities.name"
 	case "vuln.severity":
 		return "vulnerabilities.severity"
+	case "cve.id":
+		return "cves.cve_id"
+	case "cve.severity":
+		return "cves.severity"
 	}
 	return ""
 }
@@ -163,8 +189,9 @@ func mapOperator(op string, val string) (string, interface{}, bool) {
 	case "not_equals":
 		return "!=", val, false
 	case "glob":
-		// Replace * with % for SQL LIKE
+		// Replace * with % and ? with _ for SQL LIKE
 		sqlGlob := strings.ReplaceAll(val, "*", "%")
+		sqlGlob = strings.ReplaceAll(sqlGlob, "?", "_")
 		return "LIKE", sqlGlob, false
 	case "regex":
 		return "", val, true // Flag true for post-filter
@@ -233,6 +260,18 @@ func checkRegexMatch(t *database.Target, field string, r *regexp.Regexp) bool {
 	case "vuln.severity":
 		for _, v := range t.Vulns {
 			if r.MatchString(v.Severity) {
+				return true
+			}
+		}
+	case "cve.id":
+		for _, c := range t.CVEs {
+			if r.MatchString(c.CveID) {
+				return true
+			}
+		}
+	case "cve.severity":
+		for _, c := range t.CVEs {
+			if r.MatchString(c.Severity) {
 				return true
 			}
 		}

@@ -58,6 +58,12 @@ ____  ________________________
 
 	for _, mod := range allModules {
 		if !mod.CheckInstalled() {
+			// Specific bypass for Nmap as it is not a Go binary and cannot be auto-installed
+			if mod.Name() == "nmap" {
+				utils.LogWarning("Tool %s not found. Please install Nmap manually and ensure it is in your PATH.", utils.Bold("nmap"))
+				continue
+			}
+
 			utils.LogWarning("Tool %s not found. Attempting install...", utils.Bold(mod.Name()))
 			if err := mod.Install(); err != nil {
 				utils.LogError("Failed to install %s: %v", utils.Bold(mod.Name()), err)

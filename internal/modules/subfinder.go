@@ -14,6 +14,10 @@ func (s *Subfinder) Name() string {
 	return "subfinder"
 }
 
+func (s *Subfinder) Description() string {
+	return "Subfinder is a fast passive subdomain discovery tool. It aggregates and processes OSINT sources to expand the targeted organization's external attack surface before any active exploitation begins."
+}
+
 func (s *Subfinder) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("subfinder")
 	_, err := exec.LookPath(path)

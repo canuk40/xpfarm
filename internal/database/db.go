@@ -26,7 +26,7 @@ func InitDB(debug bool) {
 		log.Fatal("failed to connect database:", err)
 	}
 
-	// SQLite Performance Optimizations
+	// SQLite Performance Optimizations & Concurrency Fixes
 	sqlDB, err := DB.DB()
 	if err == nil {
 		if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
@@ -38,9 +38,15 @@ func InitDB(debug bool) {
 		if _, err := sqlDB.Exec("PRAGMA cache_size=-64000"); err != nil { // 64MB cache
 			log.Printf("Warning: failed to set cache_size: %v", err)
 		}
-		if _, err := sqlDB.Exec("PRAGMA busy_timeout=10000"); err != nil {
+		if _, err := sqlDB.Exec("PRAGMA busy_timeout=30000"); err != nil { // Increase to 30 seconds
 			log.Printf("Warning: failed to set busy_timeout: %v", err)
 		}
+
+		// Prevent "database is locked" during heavy concurrent scanning
+		// Serialize all write operations to SQLite by limiting to a single connection.
+		// WAL mode allows concurrent reads while one connection is writing.
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
 	}
 
 	// Migrate the schema

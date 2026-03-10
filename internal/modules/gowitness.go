@@ -15,6 +15,10 @@ func (g *Gowitness) Name() string {
 	return "gowitness"
 }
 
+func (g *Gowitness) Description() string {
+	return "Gowitness is a web screenshot utility. It connects to discovered web applications and captures high-resolution screenshots of the landing pages to assist in rapid visual reconnaissance."
+}
+
 func (g *Gowitness) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("gowitness")
 	_, err := exec.LookPath(path)

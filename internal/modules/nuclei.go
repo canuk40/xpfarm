@@ -14,6 +14,10 @@ func (n *Nuclei) Name() string {
 	return "nuclei"
 }
 
+func (n *Nuclei) Description() string {
+	return "Nuclei is a fast and customizable vulnerability scanner. Using structural templates, it validates exploitable misconfigurations, weak credentials, and known CVEs across networks, HTTP endpoints, and DNS infrastructures."
+}
+
 func (n *Nuclei) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("nuclei")
 	_, err := exec.LookPath(path)

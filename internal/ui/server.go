@@ -355,6 +355,32 @@ func StartServer(port string) error {
 		}))
 	})
 
+	// Modules
+	r.GET("/modules", func(c *gin.Context) {
+		// Get all tools and their statuses
+		allTools := modules.GetAll()
+		
+		type ModuleInfo struct {
+			Name        string
+			Description string
+			Installed   bool
+		}
+		
+		var modsInfo []ModuleInfo
+		for _, m := range allTools {
+			modsInfo = append(modsInfo, ModuleInfo{
+				Name:        m.Name(),
+				Description: m.Description(),
+				Installed:   m.CheckInstalled(),
+			})
+		}
+
+		c.HTML(http.StatusOK, "modules.html", getGlobalContext(gin.H{
+			"Page":    "modules",
+			"Modules": modsInfo,
+		}))
+	})
+
 	// Overlord
 	r.GET("/overlord", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "overlord.html", getGlobalContext(gin.H{
@@ -907,27 +933,6 @@ func StartServer(port string) error {
 		db.Save(profile)
 		c.Redirect(http.StatusFound, "/asset/"+id+"/settings")
 	})
-
-	// Modules
-	r.GET("/modules", func(c *gin.Context) {
-		allMods := modules.GetAll()
-		type ModStatus struct {
-			Name      string
-			Installed bool
-		}
-		var statusList []ModStatus
-		for _, m := range allMods {
-			statusList = append(statusList, ModStatus{
-				Name:      m.Name(),
-				Installed: m.CheckInstalled(),
-			})
-		}
-		c.HTML(http.StatusOK, "modules.html", getGlobalContext(gin.H{
-			"Page":    "modules",
-			"Modules": statusList,
-		}))
-	})
-
 	// Settings
 	r.GET("/settings", func(c *gin.Context) {
 		var settings []database.Setting

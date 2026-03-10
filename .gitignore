@@ -8,6 +8,7 @@ xpfarm*
 *.dll
 *.so
 *.dylib
+*.exe
 
 # Database
 *.db

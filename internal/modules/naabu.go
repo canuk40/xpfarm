@@ -14,6 +14,10 @@ func (n *Naabu) Name() string {
 	return "naabu"
 }
 
+func (n *Naabu) Description() string {
+	return "Naabu is a fast, specialized port scanner. It rapidly iterates over target architectures to map out structurally exposed TCP/UDP ports before passing them to secondary tools for deep state inspection."
+}
+
 func (n *Naabu) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("naabu")
 	_, err := exec.LookPath(path)

@@ -173,18 +173,24 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 	// Fallback to default profile if missing
 	if asset.ScanProfile == nil {
 		asset.ScanProfile = &database.ScanProfile{
-			ExcludeCloudflare:   true,
-			ExcludeLocalhost:    true,
-			EnablePortScan:      true,
-			PortScanScope:       "top100",
-			PortScanSpeed:       "fast",
-			PortScanMode:        "service",
-			EnableWebProbe:      true,
-			EnableWebWappalyzer: true,
-			EnableWebGowitness:  true,
-			WebScanScope:        "common",
-			WebScanRateLimit:    150,
-			EnableCvemap:        true,
+			ExcludeCloudflare:        true,
+			ExcludeLocalhost:         true,
+			EnableSubfinder:          true,
+			ScanDiscoveredSubdomains: true,
+			EnablePortScan:           true,
+			PortScanScope:            "top100",
+			PortScanSpeed:            "fast",
+			PortScanMode:             "service",
+			EnableWebProbe:           true,
+			EnableWebWappalyzer:      true,
+			EnableWebGowitness:       true,
+			EnableWebKatana:          true,
+			EnableWebUrlfinder:       true,
+			WebScanScope:             "common",
+			WebScanRateLimit:         150,
+			EnableVulnScan:           true,
+			EnableCvemap:             true,
+			EnableNuclei:             false,
 		}
 	}
 	profile := asset.ScanProfile
@@ -558,7 +564,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 
 												// Run Wappalyzer analysis with response headers
 												wapp := modules.Get("wappalyzer")
-												if wappalyzer, ok := wapp.(*modules.Wappalyzer); ok {
+												if wappalyzer, ok := wapp.(*modules.Wappalyzer); ok && profile.EnableWebWappalyzer {
 													// Parse response headers from httpx response
 													headers := extractHeadersFromResponse(w.Response)
 													bodyBytes := []byte(w.Response)
@@ -623,11 +629,11 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 											katanaMod, katOk := kat.(*modules.Katana)
 											urlMod, urlOk := urlF.(*modules.Urlfinder)
 
-											gwInstalled := gwOk && gowitnessMod.CheckInstalled()
-											katInstalled := katOk && katanaMod.CheckInstalled()
-											urlInstalled := urlOk && urlMod.CheckInstalled()
+											gwInstalled := gwOk && gowitnessMod.CheckInstalled() && profile.EnableWebGowitness
+											katInstalled := katOk && katanaMod.CheckInstalled() && profile.EnableWebKatana
+											urlInstalled := urlOk && urlMod.CheckInstalled() && profile.EnableWebUrlfinder
 
-											if gwInstalled || katInstalled {
+											if gwInstalled || katInstalled || urlInstalled {
 												utils.LogInfo("[Scanner] Triggering parallel web asset processing for %d URLs on %s", count, t.Value)
 
 												var webWG sync.WaitGroup
@@ -662,43 +668,43 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 														}
 
 														// --- Katana & URLFinder ---
-														if katInstalled {
-															uniquePaths := make(map[string]bool)
-															var pathsList []string
-															var pathsMu sync.Mutex
+														uniquePaths := make(map[string]bool)
+														var pathsList []string
+														var pathsMu sync.Mutex
 
-															processOutput := func(rawOutput string) {
-																lines := strings.Split(rawOutput, "\n")
-																pathsMu.Lock()
-																defer pathsMu.Unlock()
-																for _, line := range lines {
-																	line = strings.TrimSpace(line)
-																	if line == "" {
-																		continue
+														processOutput := func(rawOutput string) {
+															lines := strings.Split(rawOutput, "\n")
+															pathsMu.Lock()
+															defer pathsMu.Unlock()
+															for _, line := range lines {
+																line = strings.TrimSpace(line)
+																if line == "" {
+																	continue
+																}
+																if strings.HasPrefix(line, "http") {
+																	u, parseErr := url.Parse(line)
+																	if parseErr == nil && u.Path != "" {
+																		pathVal := u.Path
+																		if !uniquePaths[pathVal] {
+																			uniquePaths[pathVal] = true
+																			pathsList = append(pathsList, pathVal)
+																		}
+																	} else if parseErr == nil {
+																		if !uniquePaths["/"] {
+																			uniquePaths["/"] = true
+																			pathsList = append(pathsList, "/")
+																		}
 																	}
-																	if strings.HasPrefix(line, "http") {
-																		u, parseErr := url.Parse(line)
-																		if parseErr == nil && u.Path != "" {
-																			pathVal := u.Path
-																			if !uniquePaths[pathVal] {
-																				uniquePaths[pathVal] = true
-																				pathsList = append(pathsList, pathVal)
-																			}
-																		} else if parseErr == nil {
-																			if !uniquePaths["/"] {
-																				uniquePaths["/"] = true
-																				pathsList = append(pathsList, "/")
-																			}
-																		}
-																	} else {
-																		if !uniquePaths[line] {
-																			uniquePaths[line] = true
-																			pathsList = append(pathsList, line)
-																		}
+																} else {
+																	if !uniquePaths[line] {
+																		uniquePaths[line] = true
+																		pathsList = append(pathsList, line)
 																	}
 																}
 															}
+														}
 
+														if katInstalled {
 															// Run Katana
 															args := []string{"-jc", "-kf", "all", "-fx", "-d", "5", "-pc", "-c", "20"}
 															katanaOutput, katErr := katanaMod.RunCustom(ctx, webResult.URL, args)
@@ -706,31 +712,35 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 															if katErr == nil {
 																processOutput(katanaOutput)
 															}
+														}
 
+														if urlInstalled {
 															// Run URLFinder
-															if urlInstalled {
-																u, parseErr := url.Parse(webResult.URL)
-																if parseErr == nil && u.Host != "" {
-																	urlHostname := u.Hostname()
-																	if urlHostname != "" {
-																		urlOutput, urlErr := urlMod.Run(ctx, urlHostname)
-																		recordResult(db, t.ID, "urlfinder", urlOutput)
-																		if urlErr == nil {
-																			processOutput(urlOutput)
-																		}
+															u, parseErr := url.Parse(webResult.URL)
+															if parseErr == nil && u.Host != "" {
+																urlHostname := u.Hostname()
+																if urlHostname != "" {
+																	urlOutput, urlErr := urlMod.Run(ctx, urlHostname)
+																	recordResult(db, t.ID, "urlfinder", urlOutput)
+																	if urlErr == nil {
+																		processOutput(urlOutput)
 																	}
 																}
 															}
+														}
 
-															// Save combined paths
+														// Save combined paths if either ran
+														if katInstalled || urlInstalled {
 															sort.Strings(pathsList)
-															jsonBytes, jsonErr := json.Marshal(pathsList)
-															if jsonErr != nil {
-																utils.LogError("[Scanner] Failed to marshal katana paths: %v", jsonErr)
-															} else {
-																db.Model(&database.WebAsset{}).
-																	Where("target_id = ? AND url = ?", t.ID, webResult.URL).
-																	Update("katana_output", string(jsonBytes))
+															if len(pathsList) > 0 {
+																jsonBytes, jsonErr := json.Marshal(pathsList)
+																if jsonErr != nil {
+																	utils.LogError("[Scanner] Failed to marshal paths: %v", jsonErr)
+																} else {
+																	db.Model(&database.WebAsset{}).
+																		Where("target_id = ? AND url = ?", t.ID, webResult.URL).
+																		Update("katana_output", string(jsonBytes)) // stored in katana_output field for legacy reasons
+																}
 															}
 														}
 													}(w)
@@ -956,15 +966,19 @@ func (sm *ScanManager) runNucleiScan(ctx context.Context, db *gorm.DB, targetObj
 			recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("Network scan %s [tags: %s]\n%s", scan.Target, strings.Join(scan.Tags, ","), output))
 		}
 
-		if strings.Contains(output, "no templates provided for scan") {
-			utils.LogInfo("[Scanner] [Nuclei] No templates found for tags %v on %s, falling back to auto-scan", scan.Tags, scan.Target)
-			plan.FallbackURLs = append(plan.FallbackURLs, scan.Target)
-			// Proceed to parse (though it will be empty) or just continue, but keeping the flow is fine.
-		}
-
 		if err != nil {
 			utils.LogDebug("[Scanner] [Nuclei] Network scan error for %s: %v", scan.Target, err)
-			// Don't skip — partial output may have findings
+
+			// Safely catch instances where the template isn't valid or nuclei inherently rejected the scan 
+			// and aggressively pivot to the Wappalyzer Automatic Scan (-as).
+			if strings.Contains(output, "no templates provided for scan") || strings.Contains(output, "invalid value") || strings.Contains(err.Error(), "exit status") {
+				utils.LogInfo("[Scanner] [Nuclei] Scan for tags %v failed on %s, aggressively falling back to auto-scan", scan.Tags, scan.Target)
+				plan.FallbackURLs = append(plan.FallbackURLs, scan.Target)
+			}
+		} else if strings.Contains(output, "no templates provided for scan") {
+			// Catch empty/warning outputs even if the exit code was 0
+			utils.LogInfo("[Scanner] [Nuclei] No templates mapped to tags %v on %s, falling back to auto-scan", scan.Tags, scan.Target)
+			plan.FallbackURLs = append(plan.FallbackURLs, scan.Target)
 		}
 
 		count := sm.parseAndStoreNucleiResults(db, targetObj.ID, output)
@@ -1032,24 +1046,6 @@ func (sm *ScanManager) runNucleiScan(ctx context.Context, db *gorm.DB, targetObj
 		}
 	}
 
-	// --- SSL Scans ---
-	for _, sslTarget := range plan.SSLTargets {
-		if ctx.Err() != nil {
-			return
-		}
-
-		utils.LogInfo("[Scanner] [Nuclei] Running SSL scan on %s", sslTarget)
-		output, err := nm.RunSSLScan(ctx, sslTarget)
-		if output != "" {
-			recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("SSL scan %s\n%s", sslTarget, output))
-		}
-		if err != nil {
-			utils.LogDebug("[Scanner] [Nuclei] SSL scan error for %s: %v", sslTarget, err)
-		}
-
-		count := sm.parseAndStoreNucleiResults(db, targetObj.ID, output)
-		totalFindings += count
-	}
 
 	if totalFindings > 0 {
 		utils.LogSuccess("[Scanner] [Nuclei] Found %d vulnerabilities for %s", totalFindings, targetObj.Value)

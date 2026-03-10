@@ -156,8 +156,8 @@ type ScanProfile struct {
 	ExcludeCloudflare bool   `json:"exclude_cloudflare" gorm:"default:true"`
 	ExcludeLocalhost  bool   `json:"exclude_localhost" gorm:"default:true"`
 
-	EnableSubfinder          bool `json:"enable_subfinder" gorm:"default:false"`
-	ScanDiscoveredSubdomains bool `json:"scan_discovered_subdomains" gorm:"default:false"`
+	EnableSubfinder          bool `json:"enable_subfinder" gorm:"default:true"`
+	ScanDiscoveredSubdomains bool `json:"scan_discovered_subdomains" gorm:"default:true"`
 
 	EnablePortScan bool   `json:"enable_port_scan" gorm:"default:true"`
 	PortScanScope  string `json:"port_scan_scope" gorm:"default:'top100'"` // top100, top1000, all
@@ -167,12 +167,12 @@ type ScanProfile struct {
 	EnableWebProbe      bool   `json:"enable_web_probe" gorm:"default:true"`
 	EnableWebWappalyzer bool   `json:"enable_web_wappalyzer" gorm:"default:true"`
 	EnableWebGowitness  bool   `json:"enable_web_gowitness" gorm:"default:true"`
-	EnableWebKatana     bool   `json:"enable_web_katana" gorm:"default:false"`
-	EnableWebUrlfinder  bool   `json:"enable_web_urlfinder" gorm:"default:false"`
+	EnableWebKatana     bool   `json:"enable_web_katana" gorm:"default:true"`
+	EnableWebUrlfinder  bool   `json:"enable_web_urlfinder" gorm:"default:true"`
 	WebScanScope        string `json:"web_scan_scope" gorm:"default:'common'"` // all, common, nmap_http
 	WebScanRateLimit    int    `json:"web_scan_rate_limit" gorm:"default:150"`
 
-	EnableVulnScan bool `json:"enable_vuln_scan" gorm:"default:false"`
+	EnableVulnScan bool `json:"enable_vuln_scan" gorm:"default:true"`
 	EnableCvemap   bool `json:"enable_cvemap" gorm:"default:true"`
 	EnableNuclei   bool `json:"enable_nuclei" gorm:"default:false"`
 

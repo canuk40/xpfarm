@@ -11,6 +11,9 @@ type Module interface {
 	// Name returns the name of the tool (e.g., "nuclei")
 	Name() string
 
+	// Description returns a UI-friendly overview of the tool and its methodology within xpfarm.
+	Description() string
+
 	// CheckInstalled returns true if the tool is available in PATH
 	CheckInstalled() bool
 

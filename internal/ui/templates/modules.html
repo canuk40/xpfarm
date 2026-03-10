@@ -1,24 +1,106 @@
 {{define "title"}}Modules - XPFarm{{end}}
 {{template "layout.html" .}}
 {{define "content"}}
+<style>
+    .module-item {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+    
+    .module-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        cursor: pointer;
+        background: var(--color-surface);
+    }
+
+    .module-header:hover {
+        background: var(--color-surface-hover, rgba(255, 255, 255, 0.03));
+    }
+
+    .module-info {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .module-name {
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: var(--color-text);
+    }
+
+    .module-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .chevron {
+        transition: transform 0.3s ease;
+        color: var(--color-muted);
+    }
+
+    .module-item.active .chevron {
+        transform: rotate(180deg);
+    }
+
+    .module-description {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out, padding 0.3s ease;
+        background: rgba(0, 0, 0, 0.15);
+        border-top: 1px solid transparent;
+    }
+
+    .module-item.active .module-description {
+        max-height: 200px;
+        padding: 1.25rem 1.5rem;
+        border-top: 1px solid var(--color-border);
+    }
+
+    .desc-text {
+        margin: 0;
+        color: var(--color-text-muted, #a1a1aa);
+        line-height: 1.6;
+        font-size: 0.95rem;
+    }
+</style>
+
 <h1>Modules</h1>
-<div class="card">
-    <p>Status of integrated tools.</p>
-    <table>
-        <thead>
-            <tr><th>Module Name</th><th>Status</th><th>Action</th></tr>
-        </thead>
-        <tbody>
-            {{range .Modules}}
-            <tr>
-                <td style="font-weight: 500;">{{.Name}}</td>
-                <td>
-                    {{if .Installed}}<span class="badge" style="background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">Installed</span>{{else}}<span class="badge" style="background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Missing</span>{{end}}
-                </td>
-                <td>{{if .Installed}}<span style="color: var(--color-muted);">Ready</span>{{else}}<span style="color: var(--color-primary);">Restart App to Install</span>{{end}}</td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
+<div class="card" style="background: transparent; border: none; padding: 0;">
+    <p style="margin-bottom: 2rem; color: var(--color-muted);">Select a module to view its description, functionality, and operational status.</p>
+    
+    <div class="modules-container">
+        {{range .Modules}}
+        <div class="module-item" onclick="this.classList.toggle('active')">
+            <div class="module-header">
+                <div class="module-info">
+                    <span class="module-name">{{.Name}}</span>
+                    <div class="module-status">
+                        {{if .Installed}}
+                            <span class="badge" style="background-color: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">Installed & Ready</span>
+                        {{else}}
+                            <span class="badge" style="background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Missing</span>
+                            <span style="color: var(--color-primary); font-size: 0.85rem; margin-left: 0.5rem;">Restart App to Install</span>
+                        {{end}}
+                    </div>
+                </div>
+                <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+            <div class="module-description">
+                <p class="desc-text">{{.Description}}</p>
+            </div>
+        </div>
+        {{end}}
+    </div>
 </div>
 {{end}}

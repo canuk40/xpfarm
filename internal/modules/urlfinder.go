@@ -14,6 +14,10 @@ func (u *Urlfinder) Name() string {
 	return "urlfinder"
 }
 
+func (u *Urlfinder) Description() string {
+	return "Urlfinder leverages passive intelligence (like Wayback Machine and CommonCrawl) to uncover historically exposed or forgotten endpoints and API routes that active crawlers may miss."
+}
+
 func (u *Urlfinder) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("urlfinder")
 	_, err := exec.LookPath(path)

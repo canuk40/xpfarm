@@ -17,6 +17,10 @@ func (n *Nmap) Name() string {
 	return "nmap"
 }
 
+func (n *Nmap) Description() string {
+	return "Nmap is the industry-standard network mapper. In xpfarm, it validates ports discovered by Naabu and executes heavy service enumeration (version detection and deep product finger-printing) directly against them."
+}
+
 func (n *Nmap) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("nmap")
 	_, err := exec.LookPath(path)
@@ -94,10 +98,16 @@ func (n *Nmap) CustomScan(ctx context.Context, target string, ports []int, mode 
 
 	// 1. Scan Phase
 	var args []string
-	if mode == "stealth" {
+	switch mode {
+	case "stealth":
 		utils.LogInfo("Running nmap stealth scan on %s (Ports: %s)...", target, portList)
-		args = []string{"-Pn", "-sS", "-p", portList, "-oX", xmlPath, target}
-	} else {
+		// -sS (SYN stealth scan), -T2 (polite timing)
+		args = []string{"-Pn", "-sS", "-T2", "-p", portList, "-oX", xmlPath, target}
+	case "fast":
+		utils.LogInfo("Running nmap fast scan on %s (Ports: %s)...", target, portList)
+		// Drop -sC and -sV
+		args = []string{"-Pn", "-p", portList, "-oX", xmlPath, target}
+	default: // "service"
 		utils.LogInfo("Running nmap service scan on %s (Ports: %s)...", target, portList)
 		args = []string{"-Pn", "-sV", "-sC", "-p", portList, "-oX", xmlPath, target}
 	}

@@ -17,6 +17,10 @@ func (w *Wappalyzer) Name() string {
 	return "wappalyzer"
 }
 
+func (w *Wappalyzer) Description() string {
+	return "Wappalyzer uncovers the technology stack of web applications. It inspects server responses, HTML content, and headers to identify CMS platforms, frameworks, programming languages, and embedded scripts."
+}
+
 // CheckInstalled checks for the update-fingerprints binary as requested
 func (w *Wappalyzer) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("update-fingerprints")

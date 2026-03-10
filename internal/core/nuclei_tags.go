@@ -107,20 +107,6 @@ var portServiceMap = map[int]string{
 	2181:  "zookeeper",
 }
 
-// sslServices maps service names that typically support TLS/SSL.
-var sslServices = map[string]bool{
-	"https":    true,
-	"ssl":      true,
-	"imaps":    true,
-	"pop3s":    true,
-	"smtps":    true,
-	"ftps":     true,
-	"ldaps":    true,
-	"mysql":    true,
-	"mssql":    true,
-	"postgres": true,
-}
-
 // NucleiPortScan represents a single per-port Nuclei scan to execute.
 type NucleiPortScan struct {
 	Target string   // host:port
@@ -138,15 +124,11 @@ type NucleiPlan struct {
 
 	// FallbackURLs are host:port targets with no known tags — scanned with -as
 	FallbackURLs []string
-
-	// SSLTargets are host:port strings to scan with -pt ssl
-	SSLTargets []string
 }
 
 // BuildNucleiPlan analyzes detected ports and web assets to build a targeted scan plan.
 func BuildNucleiPlan(targetValue string, ports []database.Port, webAssets []database.WebAsset) NucleiPlan {
 	plan := NucleiPlan{}
-	sslSeen := make(map[string]bool)
 
 	for _, p := range ports {
 		service := strings.ToLower(strings.TrimSpace(p.Service))
@@ -160,17 +142,19 @@ func BuildNucleiPlan(targetValue string, ports []database.Port, webAssets []data
 			}
 		}
 
-		// Skip web services — they'll be handled by the -as scan
+		// Skip web services — they'll be handled by the -as scan via WebAssets
 		if webServices[service] {
-			// But check if it's also an SSL service for the SSL scan
-			if sslServices[service] && !sslSeen[hostPort] {
-				plan.SSLTargets = append(plan.SSLTargets, hostPort)
-				sslSeen[hostPort] = true
-			}
 			continue
 		}
 
-		// Build tags for this port's service
+		// If the product is entirely unknown, skip sending raw tags and immediately
+		// push to fallback for wappalyzer (-as) guessing
+		if product == "" || product == "unknown" {
+			plan.FallbackURLs = append(plan.FallbackURLs, hostPort)
+			continue
+		}
+
+		// Build tags for this port's distinct service
 		tags := buildTagsForService(service, product)
 		if len(tags) > 0 {
 			plan.NetworkScans = append(plan.NetworkScans, NucleiPortScan{
@@ -181,12 +165,6 @@ func BuildNucleiPlan(targetValue string, ports []database.Port, webAssets []data
 		} else {
 			// No known tags — fall back to -as automatic scan
 			plan.FallbackURLs = append(plan.FallbackURLs, hostPort)
-		}
-
-		// Check for SSL on non-web services
-		if sslServices[service] && !sslSeen[hostPort] {
-			plan.SSLTargets = append(plan.SSLTargets, hostPort)
-			sslSeen[hostPort] = true
 		}
 	}
 

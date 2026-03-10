@@ -28,16 +28,10 @@ docker run -p 8888:8888 -v $(pwd)/data:/app/data -v $(pwd)/screenshots:/app/scre
 
 ## TODO
 
-- [x] Redefine scan
-- [x] Vuln scan change
-- [ ] Vuln scan advanced
-- [x] Vuln scan choose/Scan Settings
-- [x] Global Search
-- [ ] Global Search refine
-- [x] Save State tabs
-- [ ] System Settings
+- [ ] Vuln scan nuclei only
+- [ ] Global Search redo
+- [ ] Agent Hell
 - [ ] SecretFinder JS
 - [ ] Repo detect/scan
 - [ ] Mobile scan
-- [ ] Custom Module
-- [ ] Agent Hell
+- [ ] Custom Module?

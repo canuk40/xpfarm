@@ -14,6 +14,10 @@ func (k *Katana) Name() string {
 	return "katana"
 }
 
+func (k *Katana) Description() string {
+	return "Katana is a next-generation web crawling framework. It spiders web applications to dynamically discover hidden endpoints, parameters, and application routing to drastically expand the attack surface."
+}
+
 func (k *Katana) CheckInstalled() bool {
 	path := utils.ResolveBinaryPath("katana")
 	_, err := exec.LookPath(path)
