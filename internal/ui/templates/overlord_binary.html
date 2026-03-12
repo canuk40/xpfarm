@@ -1,0 +1,671 @@
+{{define "title"}}Binary & Archive - XPFarm{{end}}
+{{template "layout.html" .}}
+{{define "content"}}
+<style>
+    .ba-container {
+        display: flex;
+        height: calc(100vh - 80px);
+        gap: 0;
+    }
+
+    .ba-sidebar {
+        width: 260px;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-card);
+        flex-shrink: 0;
+    }
+
+    .ba-sidebar-header {
+        padding: 15px;
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 600;
+        font-size: 0.9rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .ba-file-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+    }
+
+    .ba-file-item {
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 0.8rem;
+        color: var(--color-muted);
+        cursor: pointer;
+        margin-bottom: 2px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .ba-file-item:hover {
+        background: var(--bg-hover);
+        color: var(--color-text);
+    }
+
+    .ba-chat {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .ba-chat-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .ba-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .ba-msg {
+        max-width: 85%;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .ba-msg-user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+
+    .ba-msg-assistant {
+        align-self: flex-start;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        color: var(--color-text);
+        border-bottom-left-radius: 4px;
+    }
+
+    .ba-msg-tool {
+        align-self: flex-start;
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+        color: var(--color-text);
+        font-family: monospace;
+        font-size: 0.8rem;
+        max-width: 90%;
+    }
+
+    .ba-msg-tool summary {
+        cursor: pointer;
+        color: #10b981;
+        font-weight: 600;
+        padding: 0;
+        font-size: 0.8rem;
+    }
+
+    .ba-msg-agent {
+        align-self: center;
+        background: none;
+        border: none;
+        padding: 4px 12px;
+        font-size: 0.75rem;
+        color: var(--color-muted);
+        font-style: italic;
+    }
+
+    .ba-input-area {
+        padding: 15px 20px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 10px;
+    }
+
+    .ba-input {
+        flex: 1;
+        padding: 12px 16px;
+        background: #050505;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+        outline: none;
+        resize: none;
+    }
+
+    .ba-input:focus {
+        border-color: var(--color-primary);
+    }
+
+    .ba-send-btn {
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .ba-send-btn:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+    }
+
+    .ba-send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .ba-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        color: var(--color-muted);
+        text-align: center;
+        padding: 40px;
+    }
+
+    .ba-upload-zone {
+        padding: 15px;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .ba-upload-btn {
+        width: 100%;
+        padding: 10px;
+        background: var(--bg-hover);
+        border: 1px dashed var(--border-color);
+        border-radius: 6px;
+        color: var(--color-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+    }
+
+    .ba-upload-btn:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+    }
+</style>
+
+<div class="ba-container">
+    <!-- File Sidebar -->
+    <div class="ba-sidebar">
+        <div class="ba-sidebar-header">
+            <span>📁 Binaries</span>
+            <span style="font-size: 0.75rem; color: var(--color-muted);">{{len .Binaries}} files</span>
+        </div>
+        <div class="ba-file-list" id="file-list">
+            {{range .Binaries}}
+            <div class="ba-file-item" onclick="insertBinaryPath('{{.}}')">
+                <span style="opacity: 0.5;">📄</span> {{.}}
+            </div>
+            {{else}}
+            <div style="padding: 20px; text-align: center; color: var(--color-muted); font-size: 0.85rem;">
+                No binaries yet.<br>Upload below.
+            </div>
+            {{end}}
+        </div>
+        <div class="ba-upload-zone">
+            <input type="file" id="binary-upload" style="display: none;" onchange="uploadBinary(this)">
+            <button class="ba-upload-btn" onclick="document.getElementById('binary-upload').click()">
+                ⬆ Upload Binary
+            </button>
+        </div>
+
+        <div class="ba-sidebar-header" style="border-top: 1px solid var(--border-color);">
+            <span>📂 Output</span>
+            <span style="font-size: 0.75rem; color: var(--color-muted);">{{len .Outputs}} items</span>
+        </div>
+        <div class="ba-file-list" style="max-height: 200px;">
+            {{range .Outputs}}
+            <div class="ba-file-item">
+                <span style="opacity: 0.5;">📄</span> {{.}}
+            </div>
+            {{else}}
+            <div style="padding: 15px; text-align: center; color: var(--color-muted); font-size: 0.8rem;">
+                No output yet.
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="ba-chat">
+        <div class="ba-chat-header">
+            <div>
+                <span style="font-weight: 600;">Binary & Archive</span>
+                <span id="session-indicator"
+                    style="font-size: 0.75rem; color: var(--color-muted); margin-left: 10px;"></span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <div id="conn-badge"
+                    style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; background: {{if .Connection.Connected}}rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.2);{{else}}rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.2);{{end}}">
+                    <div
+                        style="width: 6px; height: 6px; border-radius: 50%; background: {{if .Connection.Connected}}#10b981{{else}}#ef4444{{end}};">
+                    </div>
+                    {{if .Connection.Connected}}Online{{else}}Offline{{end}}
+                </div>
+                <div style="position: relative;">
+                    <button class="badge" id="sessions-btn"
+                        style="background: none; border: 1px solid var(--border-color); color: var(--color-muted); cursor: pointer; padding: 4px 10px;"
+                        onclick="toggleSessionsPanel()">📋 History</button>
+                    <div id="sessions-panel" style="display: none; position: absolute; right: 0; top: 100%; margin-top: 6px; width: 300px; max-height: 400px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100;">
+                        <div style="padding: 10px 14px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                            <span>Sessions</span>
+                            <button onclick="newSession(); toggleSessionsPanel();" style="background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 0.8rem;">+ New</button>
+                        </div>
+                        <div id="sessions-list" style="padding: 6px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ba-messages" id="messages">
+            <div class="ba-empty" id="empty-state">
+                <div style="font-size: 2.5rem; margin-bottom: 15px; opacity: 0.3;">🔬</div>
+                <p style="font-size: 1rem; margin-bottom: 5px;">Ready to analyze</p>
+                <p style="font-size: 0.85rem;">Upload a binary and describe what you want to investigate.</p>
+            </div>
+        </div>
+
+        <div class="ba-input-area">
+            <textarea class="ba-input" id="chat-input" rows="1"
+                placeholder="Analyze /workspace/binaries/target for vulnerabilities..."
+                onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendMessage();}"></textarea>
+            <button class="ba-send-btn" id="stop-btn" onclick="stopPrompt()" style="display:none; background:#ef4444;">Stop</button>
+            <button class="ba-send-btn" id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentSession = null;
+    let isStreaming = false;
+    let eventSource = null;
+    const STORAGE_KEY = 'overlord_last_session';
+
+    function insertBinaryPath(name) {
+        const input = document.getElementById('chat-input');
+        input.value += '/workspace/binaries/' + name + ' ';
+        input.focus();
+    }
+
+    async function uploadBinary(input) {
+        if (!input.files.length) return;
+        const form = new FormData();
+        form.append('file', input.files[0]);
+        try {
+            const resp = await fetch('/api/overlord/binaries/upload', { method: 'POST', body: form });
+            const data = await resp.json();
+            if (data.status === 'uploaded') location.reload();
+        } catch (e) {
+            addMessage('system', 'Upload failed: ' + e.message);
+        }
+        input.value = '';
+    }
+
+    function newSession() {
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        currentSession = null;
+        localStorage.removeItem(STORAGE_KEY);
+        document.getElementById('messages').innerHTML =
+            '<div class="ba-empty" id="empty-state"><div style="font-size:2.5rem;margin-bottom:15px;opacity:0.3;">🔬</div><p style="font-size:1rem;margin-bottom:5px;">Ready to analyze</p><p style="font-size:0.85rem;">Upload a binary and describe what you want to investigate.</p></div>';
+        document.getElementById('session-indicator').textContent = '';
+        setStreamingUI(false);
+    }
+
+    function setStreamingUI(streaming) {
+        isStreaming = streaming;
+        document.getElementById('send-btn').style.display = streaming ? 'none' : '';
+        document.getElementById('stop-btn').style.display = streaming ? '' : 'none';
+    }
+
+    function addMessage(role, content) {
+        const empty = document.getElementById('empty-state');
+        if (empty) empty.remove();
+        const msgs = document.getElementById('messages');
+        const div = document.createElement('div');
+
+        if (role === 'user') {
+            div.className = 'ba-msg ba-msg-user';
+            div.textContent = content;
+        } else if (role === 'tool') {
+            div.className = 'ba-msg ba-msg-tool';
+            div.innerHTML = '<details><summary>🔧 ' + escapeHtml(content.name || 'Tool Call') + '</summary><pre style="margin:8px 0 0;white-space:pre-wrap;font-size:0.75rem;">' + escapeHtml(content.detail || JSON.stringify(content, null, 2)) + '</pre></details>';
+        } else if (role === 'agent') {
+            div.className = 'ba-msg ba-msg-agent';
+            div.textContent = '↪ Agent: ' + content;
+        } else {
+            div.className = 'ba-msg ba-msg-assistant';
+            div.textContent = content;
+        }
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+        return div;
+    }
+
+    function escapeHtml(str) {
+        if (typeof str !== 'string') str = String(str);
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+    }
+
+    // --- Session History ---
+    let sessionsPanelOpen = false;
+
+    function toggleSessionsPanel() {
+        sessionsPanelOpen = !sessionsPanelOpen;
+        const panel = document.getElementById('sessions-panel');
+        panel.style.display = sessionsPanelOpen ? 'block' : 'none';
+        if (sessionsPanelOpen) loadSessionsList();
+    }
+
+    document.addEventListener('click', (e) => {
+        const panel = document.getElementById('sessions-panel');
+        const btn = document.getElementById('sessions-btn');
+        if (sessionsPanelOpen && !panel.contains(e.target) && !btn.contains(e.target)) {
+            sessionsPanelOpen = false;
+            panel.style.display = 'none';
+        }
+    });
+
+    async function loadSessionsList() {
+        const list = document.getElementById('sessions-list');
+        list.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--color-muted); font-size: 0.8rem;">Loading...</div>';
+        try {
+            const resp = await fetch('/api/overlord/sessions');
+            const sessions = await resp.json();
+            if (!sessions || sessions.length === 0) {
+                list.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--color-muted); font-size: 0.8rem;">No sessions yet.</div>';
+                return;
+            }
+            sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
+            list.innerHTML = sessions.map(s => {
+                const isActive = currentSession === s.id;
+                const date = s.time?.updated ? new Date(s.time.updated * 1000).toLocaleString() : '';
+                return `<div onclick="loadSession('${s.id}')" style="padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; font-size: 0.8rem; ${isActive ? 'background: rgba(139,92,246,0.15); border-left: 2px solid #8b5cf6;' : ''} transition: background 0.15s;" onmouseenter="this.style.background=this.style.background||'var(--bg-hover)'" onmouseleave="this.style.background='${isActive ? 'rgba(139,92,246,0.15)' : ''}'">`
+                    + `<div style="font-weight: 500; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.title || 'Untitled')}</div>`
+                    + `<div style="font-size: 0.7rem; color: var(--color-muted); margin-top: 2px;">${s.id.slice(0, 8)} • ${date}</div>`
+                    + `</div>`;
+            }).join('');
+        } catch (e) {
+            list.innerHTML = '<div style="padding: 12px; text-align: center; color: #ef4444; font-size: 0.8rem;">Failed to load sessions</div>';
+        }
+    }
+
+    async function loadSession(sessionID) {
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        currentSession = sessionID;
+        localStorage.setItem(STORAGE_KEY, sessionID);
+        document.getElementById('session-indicator').textContent = 'Session: ' + sessionID.slice(0, 8);
+        sessionsPanelOpen = false;
+        document.getElementById('sessions-panel').style.display = 'none';
+
+        const msgs = document.getElementById('messages');
+        msgs.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--color-muted);">Loading messages...</div>';
+
+        try {
+            const resp = await fetch('/api/overlord/sessions/' + sessionID + '/messages');
+            const messages = await resp.json();
+            msgs.innerHTML = '';
+
+            if (!messages || messages.length === 0) {
+                msgs.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--color-muted); font-size: 0.85rem;">No messages in this session yet.</div>';
+            } else {
+                messages.forEach(msg => {
+                    const info = msg.info;
+                    const parts = msg.parts || [];
+                    if (info?.role === 'user') {
+                        const textParts = parts.filter(p => p.type === 'text');
+                        const text = textParts.map(p => p.text || '').join('\n') || '(user message)';
+                        addMessage('user', text);
+                    } else if (info?.role === 'assistant') {
+                        const textParts = parts.filter(p => p.type === 'text');
+                        const toolParts = parts.filter(p => p.type === 'tool');
+                        if (textParts.length > 0) {
+                            addMessage('assistant', textParts.map(p => p.text || '').join('\n'));
+                        }
+                        toolParts.forEach(p => {
+                            const state = p.state || {};
+                            addMessage('tool', {
+                                name: p.tool + ' (' + (state.status || 'unknown') + ')',
+                                detail: state.output || state.error || JSON.stringify(state.input, null, 2)
+                            });
+                        });
+                    }
+                });
+            }
+            connectSSE();
+        } catch (e) {
+            msgs.innerHTML = '<div style="padding: 20px; text-align: center; color: #ef4444;">Failed to load session: ' + e.message + '</div>';
+        }
+    }
+
+    // --- SSE Event Handling ---
+    const toolDivs = {};
+    let reasoningDiv = null;
+    let reasoningText = '';
+
+    function connectSSE() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource('/api/overlord/events');
+        let assistantDiv = null;
+        let fullText = '';
+        reasoningDiv = null;
+        reasoningText = '';
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (!currentSession) return;
+
+                if (data.type === 'message.part.updated') {
+                    const part = data.properties?.part;
+                    if (!part || part.sessionID !== currentSession) return;
+
+                    if (part.type === 'text') {
+                        reasoningDiv = null; reasoningText = '';
+                        if (!assistantDiv) {
+                            assistantDiv = addMessage('assistant', '');
+                            fullText = '';
+                        }
+                        if (data.properties.delta) {
+                            fullText += data.properties.delta;
+                        } else {
+                            fullText = part.text || fullText;
+                        }
+                        assistantDiv.textContent = fullText;
+                        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+
+                    } else if (part.type === 'tool') {
+                        const state = part.state || {};
+                        const callID = part.callID || part.id;
+                        const toolName = part.tool || 'tool';
+
+                        if (!toolDivs[callID]) {
+                            const div = document.createElement('div');
+                            div.className = 'ba-msg ba-msg-tool';
+                            div.style.maxWidth = '95%';
+                            toolDivs[callID] = div;
+                            document.getElementById('messages').appendChild(div);
+                        }
+
+                        const div = toolDivs[callID];
+                        const statusIcon = state.status === 'running' ? '⏳' : state.status === 'completed' ? '✅' : state.status === 'error' ? '❌' : '⏳';
+                        const title = state.title || toolName;
+
+                        if (state.status === 'pending' || state.status === 'running') {
+                            div.innerHTML = '<div style="display:flex;align-items:center;gap:6px;font-size:0.8rem;">' + statusIcon + ' <strong>' + escapeHtml(title) + '</strong> <span style="color:var(--color-muted);font-size:0.7rem;">running...</span></div>';
+                        } else if (state.status === 'completed') {
+                            const output = state.output ? state.output.substring(0, 500) : '';
+                            div.innerHTML = '<details><summary style="font-size:0.8rem;">' + statusIcon + ' ' + escapeHtml(title) + '</summary>'
+                                + '<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:0.72rem;max-height:200px;overflow-y:auto;">' + escapeHtml(output) + '</pre></details>';
+                        } else if (state.status === 'error') {
+                            div.innerHTML = '<details open><summary style="font-size:0.8rem;color:#ef4444;">' + statusIcon + ' ' + escapeHtml(title) + ' — error</summary>'
+                                + '<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:0.72rem;color:#ef4444;">' + escapeHtml(state.error || '') + '</pre></details>';
+                        }
+                        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+
+                    } else if (part.type === 'reasoning') {
+                        if (!reasoningDiv) {
+                            reasoningDiv = document.createElement('div');
+                            reasoningDiv.className = 'ba-msg ba-msg-tool';
+                            reasoningDiv.style.maxWidth = '95%';
+                            reasoningDiv.innerHTML = '<details open><summary style="font-size:0.8rem;">💭 Thinking...</summary><pre class="reasoning-pre" style="margin:6px 0 0;white-space:pre-wrap;font-size:0.72rem;max-height:200px;overflow-y:auto;"></pre></details>';
+                            document.getElementById('messages').appendChild(reasoningDiv);
+                            reasoningText = '';
+                        }
+                        const delta = data.properties.delta || part.text || '';
+                        reasoningText += delta;
+                        reasoningDiv.querySelector('.reasoning-pre').textContent = reasoningText;
+                        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+
+                    } else if (part.type === 'agent') {
+                        addMessage('agent', part.name || 'subagent');
+
+                    } else if (part.type === 'step-start') {
+                        const div = document.createElement('div');
+                        div.style.cssText = 'border-top:1px dashed var(--border-color);margin:8px 0;opacity:0.3;';
+                        document.getElementById('messages').appendChild(div);
+
+                    } else if (part.type === 'step-finish') {
+                        const cost = part.cost ? ' • $' + part.cost.toFixed(4) : '';
+                        const tokens = part.tokens ? ' • ' + part.tokens.input + ' in / ' + part.tokens.output + ' out' : '';
+                        if (cost || tokens) {
+                            const div = document.createElement('div');
+                            div.style.cssText = 'text-align:center;font-size:0.65rem;color:var(--color-muted);padding:2px 0;';
+                            div.textContent = 'Step complete' + cost + tokens;
+                            document.getElementById('messages').appendChild(div);
+                        }
+                    }
+
+                } else if (data.type === 'session.idle') {
+                    if (data.properties?.sessionID === currentSession) {
+                        assistantDiv = null;
+                        fullText = '';
+                        reasoningDiv = null;
+                        reasoningText = '';
+                        Object.keys(toolDivs).forEach(k => delete toolDivs[k]);
+                        setStreamingUI(false);
+                    }
+
+                } else if (data.type === 'session.status') {
+                    if (data.properties?.sessionID === currentSession) {
+                        const status = data.properties.status;
+                        if (status?.type === 'busy') {
+                            document.getElementById('session-indicator').textContent = 'Session: ' + currentSession.slice(0, 8) + ' • Processing...';
+                            setStreamingUI(true);
+                        } else if (status?.type === 'idle') {
+                            document.getElementById('session-indicator').textContent = 'Session: ' + currentSession.slice(0, 8);
+                        }
+                    }
+
+                } else if (data.type === 'message.updated') {
+                    const msg = data.properties?.info;
+                    if (msg && msg.sessionID === currentSession && msg.role === 'assistant' && msg.tokens) {
+                        const cost = msg.cost ? '$' + msg.cost.toFixed(4) : '';
+                        const tokens = 'In: ' + msg.tokens.input + ' / Out: ' + msg.tokens.output;
+                        document.getElementById('session-indicator').textContent = 'Session: ' + currentSession.slice(0, 8) + (cost ? ' • ' + cost : '') + ' • ' + tokens;
+                    }
+                }
+            } catch (e) {
+                // Non-JSON event, ignore
+            }
+        };
+
+        eventSource.onerror = () => {};
+    }
+
+    // --- Stop Button ---
+    async function stopPrompt() {
+        if (!currentSession) return;
+        try {
+            await fetch('/api/overlord/sessions/' + currentSession + '/abort', { method: 'POST' });
+        } catch (e) { /* ignore */ }
+        setStreamingUI(false);
+    }
+
+    // --- Send Message ---
+    async function sendMessage() {
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        if (!message || isStreaming) return;
+
+        input.value = '';
+        addMessage('user', message);
+        setStreamingUI(true);
+
+        try {
+            // Create session if needed
+            if (!currentSession) {
+                const createResp = await fetch('/api/overlord/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'Binary Analysis' })
+                });
+                const session = await createResp.json();
+                if (session && session.id) {
+                    currentSession = session.id;
+                    localStorage.setItem(STORAGE_KEY, session.id);
+                    document.getElementById('session-indicator').textContent = 'Session: ' + session.id.slice(0, 8);
+                    // Connect SSE FIRST, then send prompt so we catch all events
+                    connectSSE();
+                    // Small delay to ensure SSE is connected before prompt fires
+                    await new Promise(r => setTimeout(r, 300));
+                } else {
+                    const errMsg = (session && session.error) ? session.error : 'Failed to create session. Is the Overlord container running?';
+                    addMessage('assistant', errMsg);
+                    setStreamingUI(false);
+                    return;
+                }
+            }
+
+            // Send async prompt — returns immediately, content streams via SSE
+            const promptResp = await fetch('/api/overlord/sessions/' + currentSession + '/prompt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message })
+            });
+            const result = await promptResp.json();
+            if (result && result.error) {
+                addMessage('assistant', 'Error: ' + result.error);
+                setStreamingUI(false);
+            }
+            // All content arrives via SSE — session.idle re-enables send
+        } catch (e) {
+            addMessage('assistant', 'Failed to connect to Overlord: ' + e.message);
+            setStreamingUI(false);
+        }
+    }
+
+    // --- Auto-restore last session on page load ---
+    (function() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            loadSession(saved);
+        }
+    })();
+</script>
+{{end}}

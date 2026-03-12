@@ -672,9 +672,15 @@
             </a>
 
             <!-- Overlord -->
-            <a href="/overlord" class="nav-link {{if eq .Page `overlord`}}active{{end}}" title="Overlord">
-                <span class="full-text">Overlord</span><span class="short-text">O</span>
-            </a>
+            <details id="nav-overlord" {{if eq .Page `overlord`}}open{{end}}>
+                <summary title="Overlord">
+                    <span class="full-text">Overlord</span><span class="short-text">O</span>
+                </summary>
+                <div class="sub-menu">
+                    <a href="/overlord" class="sub-link">Status</a>
+                    <a href="/overlord/binary" class="sub-link">Binary & Archive</a>
+                </div>
+            </details>
 
             <!-- Separator -->
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 15px 0;">
@@ -692,6 +698,7 @@
                 <div class="sub-menu">
                     <a href="/settings?tab=env" class="sub-link">Environment Variables</a>
                     <a href="/settings?tab=notifications" class="sub-link">Notification Integration</a>
+                    <a href="/settings?tab=ai" class="sub-link">AI Provider</a>
                 </div>
             </details>
         </div>

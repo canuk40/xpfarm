@@ -1,17 +1,100 @@
 {{define "title"}}Overlord - XPFarm{{end}}
 {{template "layout.html" .}}
 {{define "content"}}
-<div
-    style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center;">
-    <h1
-        style="font-size: 3rem; margin-bottom: 20px; background: linear-gradient(to right, #8b5cf6, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-        Overlord
-    </h1>
-    <h2 style="font-size: 1.5rem; color: var(--color-text); margin-bottom: 10px;">
-        AI ?
-    </h2>
-    <p style="color: var(--color-muted); font-size: 1.2rem;">
-        Coming Soon
-    </p>
+<h1 style="background: linear-gradient(to right, #8b5cf6, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+    Overlord
+</h1>
+
+<!-- Connection Status -->
+<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    <div class="stat-card" id="connection-card">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+            <div id="status-dot"
+                style="width: 12px; height: 12px; border-radius: 50%; background: {{if .Status.Connection.Connected}}#10b981{{else}}#ef4444{{end}}; box-shadow: 0 0 8px {{if .Status.Connection.Connected}}rgba(16,185,129,0.5){{else}}rgba(239,68,68,0.5){{end}};"></div>
+            <span style="font-weight: 600; font-size: 1.1rem;"
+                id="status-text">{{if .Status.Connection.Connected}}Connected{{else}}Disconnected{{end}}</span>
+        </div>
+        <p style="color: var(--color-muted); font-size: 0.85rem; margin: 0;">
+            {{if .Status.Connection.Connected}}
+            OpenCode AI agent is running and reachable.
+            {{else}}
+            <span style="color: #fbbf24;">Overlord container not detected.</span><br>
+            <a href="https://github.com/A3-N/xpfarm" target="_blank"
+                style="color: var(--color-primary); text-decoration: underline;">See Documentation →</a>
+            {{end}}
+        </p>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-value" style="font-size: 1.5rem;">{{len .Status.Agents}}</div>
+        <div class="stat-label">AI Agents</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-value" style="font-size: 1.5rem;">{{len .Status.Tools}}</div>
+        <div class="stat-label">Tools Available</div>
+    </div>
 </div>
+
+{{if .Status.Connection.Connected}}
+<!-- Agents Grid -->
+<h2>Agents</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-bottom: 30px;">
+    {{range .Status.Agents}}
+    <div class="card" style="padding: 15px; border-left: 3px solid {{if .Color}}{{.Color}}{{else}}var(--color-primary){{end}};">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span style="font-weight: 600; color: var(--color-text);">{{.Name}}</span>
+            <span class="badge"
+                style="background: {{if eq .Mode `primary`}}rgba(139,92,246,0.2); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3);{{else}}rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3);{{end}}">
+                {{.Mode}}
+            </span>
+        </div>
+        <p style="color: var(--color-muted); font-size: 0.8rem; margin: 0; line-height: 1.4;">{{.Description}}</p>
+    </div>
+    {{end}}
+</div>
+
+<!-- Tools Grid -->
+<h2>Tools</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 30px;">
+    {{range .Status.Tools}}
+    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px;">
+        <div
+            style="width: 8px; height: 8px; border-radius: 50%; background: {{if .Enabled}}#10b981{{else}}#4b5563{{end}};">
+        </div>
+        <span
+            style="font-family: monospace; font-size: 0.85rem; color: {{if .Enabled}}var(--color-text){{else}}var(--color-muted){{end}};">{{.Name}}</span>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<!-- Not Connected Fallback -->
+<div class="card" style="text-align: center; padding: 60px 40px; border: 1px dashed var(--border-color);">
+    <div style="font-size: 3rem; margin-bottom: 15px; opacity: 0.3;">🤖</div>
+    <h2 style="color: var(--color-muted); margin-bottom: 10px;">Overlord Not Available</h2>
+    <p style="color: var(--color-muted); max-width: 500px; margin: 0 auto 20px;">
+        The Overlord AI agent requires Docker. Run <code
+            style="background: var(--bg-hover); padding: 2px 6px; border-radius: 4px;">./xpfarm.sh overlord</code> to
+        start the full environment.
+    </p>
+    <a href="https://github.com/A3-N/xpfarm" target="_blank" class="btn btn-primary">View Documentation</a>
+</div>
+{{end}}
+
+<script>
+    // Auto-refresh status every 5 seconds
+    setInterval(async () => {
+        try {
+            const resp = await fetch('/api/overlord/status');
+            const data = await resp.json();
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (dot && text) {
+                dot.style.background = data.connection.connected ? '#10b981' : '#ef4444';
+                dot.style.boxShadow = data.connection.connected ? '0 0 8px rgba(16,185,129,0.5)' : '0 0 8px rgba(239,68,68,0.5)';
+                text.textContent = data.connection.connected ? 'Connected' : 'Disconnected';
+            }
+        } catch (e) { }
+    }, 5000);
+</script>
 {{end}}

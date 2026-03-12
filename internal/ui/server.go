@@ -18,6 +18,7 @@ import (
 	"xpfarm/internal/modules"
 	"xpfarm/internal/notifications/discord"
 	"xpfarm/internal/notifications/telegram"
+	"xpfarm/internal/overlord"
 	"xpfarm/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -67,7 +68,7 @@ func StartServer(port string) error {
 		return err
 	}
 
-	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "search.html", "advanced_scan.html", "scan_settings.html"}
+	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "overlord_binary.html", "search.html", "advanced_scan.html", "scan_settings.html"}
 
 	for _, page := range pages {
 		pageContent, err := f.ReadFile("templates/" + page)
@@ -383,10 +384,176 @@ func StartServer(port string) error {
 
 	// Overlord
 	r.GET("/overlord", func(c *gin.Context) {
+		status := overlord.GetStatus()
 		c.HTML(http.StatusOK, "overlord.html", getGlobalContext(gin.H{
-			"Page": "overlord",
+			"Page":   "overlord",
+			"Status": status,
 		}))
 	})
+
+	r.GET("/overlord/binary", func(c *gin.Context) {
+		status := overlord.CheckConnection()
+		binaries, _ := overlord.ListBinaries()
+		outputs, _ := overlord.ListOutputs()
+		c.HTML(http.StatusOK, "overlord_binary.html", getGlobalContext(gin.H{
+			"Page":       "overlord",
+			"Connection": status,
+			"Binaries":   binaries,
+			"Outputs":    outputs,
+		}))
+	})
+
+	// Overlord API
+	r.GET("/api/overlord/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, overlord.GetStatus())
+	})
+
+	r.GET("/api/overlord/sessions", func(c *gin.Context) {
+		sessions, err := overlord.GetSessions()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, sessions)
+	})
+
+	r.GET("/api/overlord/sessions/:id/messages", func(c *gin.Context) {
+		sessionID := c.Param("id")
+		messages, err := overlord.GetSessionMessages(sessionID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, messages)
+	})
+
+	r.POST("/api/overlord/sessions", func(c *gin.Context) {
+		var body struct {
+			Message string `json:"message"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		session, err := overlord.CreateSession(body.Message)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, session)
+	})
+
+	r.POST("/api/overlord/sessions/:id/prompt", func(c *gin.Context) {
+		sessionID := c.Param("id")
+		var body struct {
+			Message string `json:"message"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		err := overlord.SendPromptAsync(sessionID, body.Message)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	r.POST("/api/overlord/sessions/:id/abort", func(c *gin.Context) {
+		sessionID := c.Param("id")
+		err := overlord.AbortSession(sessionID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "aborted"})
+	})
+
+	r.GET("/api/overlord/events", func(c *gin.Context) {
+		if err := overlord.ProxySSE(c.Writer); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		}
+	})
+
+	r.GET("/api/overlord/binaries", func(c *gin.Context) {
+		files, _ := overlord.ListBinaries()
+		c.JSON(http.StatusOK, files)
+	})
+
+	r.POST("/api/overlord/binaries/upload", func(c *gin.Context) {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"})
+			return
+		}
+		f, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer f.Close()
+		if err := overlord.SaveBinary(file.Filename, f); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "uploaded", "filename": file.Filename})
+	})
+
+	// AI Provider Settings
+	r.POST("/settings/ai", func(c *gin.Context) {
+		providerID := c.PostForm("active_provider")
+		db := database.GetDB()
+
+		// Save active provider
+		if providerID != "" {
+			var s database.Setting
+			s.Key = "OVERLORD_ACTIVE_PROVIDER"
+			s.Value = providerID
+			s.Description = "Active AI Provider for Overlord"
+			db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+			}).Create(&s)
+		}
+
+		// Save all provider API keys
+		authKeys := make(map[string]string)
+		for _, provider := range overlord.GetProviders() {
+			for _, envKey := range provider.EnvKeys {
+				val := c.PostForm(envKey)
+				if val != "" {
+					var s database.Setting
+					s.Key = envKey
+					s.Value = val
+					s.Description = provider.Name + " API Key"
+					db.Clauses(clause.OnConflict{
+						Columns:   []clause.Column{{Name: "key"}},
+						DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+					}).Create(&s)
+					os.Setenv(envKey, val)
+					authKeys[envKey] = val
+
+					// Also set auth on OpenCode server directly
+					overlord.SetAuth(provider.ID, val)
+				}
+			}
+		}
+
+		// Write auth file for overlord container (fallback)
+		if len(authKeys) > 0 {
+			var allSettings []database.Setting
+			db.Find(&allSettings)
+			allKeys := make(map[string]string)
+			for _, s := range allSettings {
+				allKeys[s.Key] = s.Value
+			}
+			overlord.WriteAuthFile(allKeys)
+		}
+
+		c.Redirect(http.StatusFound, "/settings?tab=ai")
+	})
+
 
 	// Global Search
 	r.GET("/search", func(c *gin.Context) {
@@ -946,9 +1113,21 @@ func StartServer(port string) error {
 	r.GET("/settings", func(c *gin.Context) {
 		var settings []database.Setting
 		database.GetDB().Find(&settings)
+
+		// Get active provider for AI tab
+		activeProvider := ""
+		for _, s := range settings {
+			if s.Key == "OVERLORD_ACTIVE_PROVIDER" {
+				activeProvider = s.Value
+				break
+			}
+		}
+
 		c.HTML(http.StatusOK, "settings.html", getGlobalContext(gin.H{
-			"Page":     "settings",
-			"Settings": settings,
+			"Page":           "settings",
+			"Settings":       settings,
+			"Providers":      overlord.GetProviders(),
+			"ActiveProvider": activeProvider,
 		}))
 	})
 

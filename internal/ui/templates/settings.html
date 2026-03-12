@@ -154,6 +154,79 @@
 
 
 </div>
+
+<div id="ai-section" class="settings-section" style="display: none;">
+    <div class="card">
+        <h2>AI Provider Configuration</h2>
+        <p style="color: var(--color-muted); margin-bottom: 20px;">Configure API keys for the Overlord AI agent. Select one active provider.</p>
+
+        <!-- Saved Keys Table -->
+        <h3 style="margin-bottom: 10px;">Saved API Keys</h3>
+        <table style="margin-bottom: 25px;">
+            <thead>
+                <tr>
+                    <th>Key</th>
+                    <th>Value</th>
+                    <th>Provider</th>
+                    <th style="width: 80px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Settings}}
+                {{if or (eq .Key "ANTHROPIC_API_KEY") (eq .Key "OPENAI_API_KEY") (eq .Key "OPENCODE_API_KEY") (eq .Key "AZURE_API_KEY") (eq .Key "GROQ_API_KEY") (eq .Key "DEEPSEEK_API_KEY") (eq .Key "OPENROUTER_API_KEY") (eq .Key "XAI_API_KEY") (eq .Key "FIREWORKS_API_KEY") (eq .Key "TOGETHER_API_KEY") (eq .Key "DEEPINFRA_API_KEY") (eq .Key "MINIMAX_API_KEY") (eq .Key "CEREBRAS_API_KEY") (eq .Key "MOONSHOT_API_KEY") (eq .Key "NEBIUS_API_KEY") (eq .Key "ZAI_API_KEY") (eq .Key "CLOUDFLARE_API_TOKEN") (eq .Key "VERCEL_API_KEY")}}
+                <tr>
+                    <td style="font-family: monospace; color: var(--color-primary);">{{.Key}}</td>
+                    <td>••••••••••••</td>
+                    <td>{{.Description}}</td>
+                    <td>
+                        <form action="/settings/delete" method="POST" onsubmit="return confirm('Delete {{.Key}}?');" style="margin: 0;">
+                            <input type="hidden" name="key" value="{{.Key}}">
+                            <button type="submit" class="badge" style="background: none; border: 1px solid #ef4444; color: #ef4444; cursor: pointer;">Del</button>
+                        </form>
+                    </td>
+                </tr>
+                {{end}}
+                {{end}}
+            </tbody>
+        </table>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 25px 0;">
+
+        <form action="/settings/ai" method="POST"
+            style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px;">
+
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Provider Settings</button>
+
+            {{range .Providers}}
+            <div style="padding: 15px; background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+                    <input type="radio" name="active_provider" value="{{.ID}}"
+                        id="provider-{{.ID}}"
+                        {{if eq $.ActiveProvider .ID}}checked{{end}}
+                        style="accent-color: var(--color-primary); width: 16px; height: 16px; cursor: pointer;">
+                    <label for="provider-{{.ID}}" style="font-weight: 600; cursor: pointer;">{{.Name}}</label>
+                    {{if .HasFree}}
+                    <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.7rem;">FREE TIER</span>
+                    {{end}}
+                </div>
+                <p style="color: var(--color-muted); font-size: 0.8rem; margin: 0 0 10px 28px;">{{.Description}}</p>
+                {{if .EnvKeys}}
+                <div style="margin-left: 28px; display: flex; flex-direction: column; gap: 8px;">
+                    {{range .EnvKeys}}
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label style="font-family: monospace; font-size: 0.8rem; color: var(--color-primary); min-width: 220px;">{{.}}</label>
+                        <input type="password" name="{{.}}" placeholder="••••••••" autocomplete="off"
+                            style="flex: 1; padding: 8px 12px; background-color: #050505; border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none; font-size: 0.85rem;">
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <p style="margin: 0 0 0 28px; color: var(--color-muted); font-size: 0.8rem; font-style: italic;">No API key required</p>
+                {{end}}
+            </div>
+            {{end}}
+        </form>
+    </div>
 </div>
 
 <script>
@@ -165,6 +238,8 @@
 
         if (tab === 'notifications') {
             document.getElementById('notifications-section').style.display = 'block';
+        } else if (tab === 'ai') {
+            document.getElementById('ai-section').style.display = 'block';
         } else {
             document.getElementById('env-section').style.display = 'block';
         }

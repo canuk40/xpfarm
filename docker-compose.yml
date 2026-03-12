@@ -1,12 +1,58 @@
 services:
   xpfarm:
     build: .
+    container_name: xpfarm
     ports:
       - "8888:8888"
     volumes:
       - ./data:/app/data
       - ./screenshots:/app/screenshots
-      # - ./.env:/app/.env 
+      - ./xpfarm.db:/app/xpfarm.db
+      - ./overlord/auth.json:/app/overlord-auth.json
     environment:
       - GIN_MODE=release
+      - OVERLORD_URL=http://overlord:3000
     restart: unless-stopped
+    depends_on:
+      - overlord
+    networks:
+      - xpfarm-network
+
+  overlord:
+    build: ./overlord
+    container_name: overlord
+    volumes:
+      - ./overlord/binaries:/workspace/binaries
+      - ./overlord/output:/workspace/output
+      - ./overlord/config/opencode.json:/root/.config/opencode/opencode.json
+      - ./overlord/agents:/root/.config/opencode/agents
+      - ./overlord/tools:/root/.config/opencode/tools
+      - ./overlord/INSTRUCTIONS.md:/workspace/INSTRUCTIONS.md:ro
+      - ./overlord/auth.json:/root/.local/share/opencode/auth.json
+    env_file:
+      - .env
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    command: ["opencode", "serve", "--port", "3000", "--hostname", "0.0.0.0"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - xpfarm-network
+
+  mobsf:
+    image: opensecurity/mobile-security-framework-mobsf:latest
+    container_name: mobsf
+    ports:
+      - "8000:8000"
+    restart: always
+    profiles:
+      - mobsf
+    networks:
+      - xpfarm-network
+
+networks:
+  xpfarm-network:
+    driver: bridge

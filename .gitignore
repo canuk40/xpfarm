@@ -1,10 +1,4 @@
 # Binaries
-xpfarm
-xpfarm.exe
-xpfarm-mac-*
-xpfarm-linux-*
-xpfarm-windows-*
-xpfarm*
 *.dll
 *.so
 *.dylib
@@ -26,6 +20,7 @@ tmp/
 test/
 *.test
 *.out
+dist/
 
 # IDE / OS
 .vscode/
@@ -39,3 +34,9 @@ screenshots/
 .screenshots/
 *.txt
 *.py
+
+# Overlord
+overlord/binaries/
+overlord/output/
+overlord/auth.json
+binaryagent-main/

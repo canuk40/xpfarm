@@ -25,17 +25,34 @@ The focus was on building a vuln scanner where you can also see what fails or ge
 
 ![Discovery Paths](img/Disc_Paths.png)
 
+## Overlord — AI Binary Analysis
+
+Overlord is a built-in AI agent powered by [OpenCode](https://opencode.ai) that can analyze binaries, archives, and other files. Upload a binary and chat with it — the agent uses tools like radare2, strings, file triage, and more to investigate your target.
+
+- **Live streaming output** — see thinking, tool calls, and results as they happen
+- **Session history** — switch between previous analysis sessions, auto-restored on page refresh
+- **Multi-provider support** — Anthropic, OpenAI, Groq, Ollama (local), and 15+ more
+- **Stop button** — abort long-running analysis at any time
+
+![Overlord Status](img/O_status.png)
+
+![Overlord Prompt](img/O_prompt.png)
+
 ## Setup
 
 ```bash
-# Docker Compose (recommended)
-docker-compose up --build
+# Using the helper scripts (recommended)
+./xpfarm.sh build     # Build all containers
+./xpfarm.sh up        # Start everything
+
+# Windows
+.\xpfarm.ps1 build
+.\xpfarm.ps1 up
 
 # Standard Docker
-docker build -t xpfarm .
-docker run -p 8888:8888 -v $(pwd)/data:/app/data -v $(pwd)/screenshots:/app/screenshots xpfarm
+docker compose up --build
 
-# Build from source
+# Build from source (no Overlord)
 go build -o xpfarm
 ./xpfarm
 ./xpfarm -debug
@@ -51,7 +68,7 @@ go build -o xpfarm
 
 ## TODO
 
-- [ ] Agent Hell
+- [x] Agent Hell (Overlord)
 
 ### NTH
 - [ ] SecretFinder JS
