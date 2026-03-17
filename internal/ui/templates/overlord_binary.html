@@ -407,6 +407,30 @@
         border: 1px solid var(--border-color);
         color: #e2e8f0;
     }
+
+    /* Model selector */
+    .ba-model-select {
+        padding: 4px 8px;
+        background: #050505;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        color: var(--color-text);
+        font-size: 0.75rem;
+        outline: none;
+        max-width: 260px;
+        cursor: pointer;
+    }
+    .ba-model-select:focus {
+        border-color: var(--color-primary);
+    }
+    .ba-model-select option {
+        background: #0a0a0a;
+        color: var(--color-text);
+    }
+    .ba-model-select optgroup {
+        color: var(--color-primary);
+        font-style: normal;
+    }
 </style>
 
 <!-- marked.js for markdown rendering -->
@@ -463,6 +487,9 @@
                     style="font-size: 0.75rem; color: var(--color-muted); margin-left: 10px;"></span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
+                <select class="ba-model-select" id="model-select" onchange="saveModelSelection()" title="Select AI model">
+                    <option value="">Loading models...</option>
+                </select>
                 <div id="conn-badge"
                     style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; background: {{if .Connection.Connected}}rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.2);{{else}}rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.2);{{end}}">
                     <div
@@ -526,6 +553,66 @@
     let eventSource = null;
     const STORAGE_KEY = 'overlord_last_session';
     let activityCounter = 0;
+    let savedModel = '{{.ActiveModel}}';
+
+    // --- Model Selector ---
+    async function loadModels() {
+        const select = document.getElementById('model-select');
+        try {
+            const resp = await fetch('/api/overlord/providers');
+            if (!resp.ok) throw new Error('offline');
+            const data = await resp.json();
+            const connected = data.connected || [];
+            const providers = (data.all || []).filter(p => connected.includes(p.id));
+
+            select.innerHTML = '';
+            if (providers.length === 0) {
+                select.innerHTML = '<option value="">No providers connected</option>';
+                return;
+            }
+
+            // Add default option
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = '⚡ Auto (server default)';
+            select.appendChild(defaultOpt);
+
+            providers.forEach(provider => {
+                const models = provider.models || {};
+                const modelEntries = Object.values(models).filter(m => m.capabilities && m.capabilities.toolcall);
+                if (modelEntries.length === 0) return;
+
+                const group = document.createElement('optgroup');
+                group.label = provider.name;
+                modelEntries.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = provider.id + '/' + m.id;
+                    const cost = m.cost ? `$${m.cost.input.toFixed(2)}/$${m.cost.output.toFixed(2)}` : '';
+                    opt.textContent = (m.name || m.id) + (cost ? ' (' + cost + ')' : '');
+                    if (savedModel === opt.value) opt.selected = true;
+                    group.appendChild(opt);
+                });
+                select.appendChild(group);
+            });
+        } catch (e) {
+            select.innerHTML = '<option value="">⚠ Offline</option>';
+        }
+    }
+
+    async function saveModelSelection() {
+        const select = document.getElementById('model-select');
+        savedModel = select.value;
+        try {
+            await fetch('/api/overlord/model', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: savedModel })
+            });
+        } catch (e) { /* ignore save failure */ }
+    }
+
+    // Load models on page load
+    loadModels();
 
     // Configure marked for safe rendering
     if (typeof marked !== 'undefined') {
@@ -949,10 +1036,12 @@
             }
 
             // Send async prompt — returns immediately, content streams via SSE
+            const promptPayload = { message };
+            if (savedModel) promptPayload.model = savedModel;
             const promptResp = await fetch('/api/overlord/sessions/' + currentSession + '/prompt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message })
+                body: JSON.stringify(promptPayload)
             });
             const result = await promptResp.json();
             if (result && result.error) {

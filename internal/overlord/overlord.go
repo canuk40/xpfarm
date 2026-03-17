@@ -21,6 +21,14 @@ var (
 	basePathOnce sync.Once
 )
 
+// Provider cache
+var (
+	providerCache     *ProviderResponse
+	providerCacheTime time.Time
+	providerCacheMu   sync.Mutex
+	providerCacheTTL  = 60 * time.Second
+)
+
 func getBasePath() string {
 	basePathOnce.Do(func() {
 		if _, err := os.Stat("overlord"); err == nil {
@@ -71,7 +79,60 @@ type OverlordStatus struct {
 	Tools      []ToolInfo       `json:"tools"`
 }
 
-// --- Provider Definitions ---
+// --- Provider & Model Types (from OpenCode API) ---
+
+type ModelCapabilities struct {
+	Temperature bool `json:"temperature"`
+	Reasoning   bool `json:"reasoning"`
+	Attachment  bool `json:"attachment"`
+	ToolCall    bool `json:"toolcall"`
+}
+
+type ModelCost struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
+}
+
+type ModelLimit struct {
+	Context int `json:"context"`
+	Output  int `json:"output"`
+}
+
+type Model struct {
+	ID           string            `json:"id"`
+	ProviderID   string            `json:"providerID"`
+	Name         string            `json:"name"`
+	Capabilities ModelCapabilities `json:"capabilities"`
+	Cost         ModelCost         `json:"cost"`
+	Limit        ModelLimit        `json:"limit"`
+	Status       string            `json:"status"`
+}
+
+type Provider struct {
+	ID     string           `json:"id"`
+	Name   string           `json:"name"`
+	Source string           `json:"source"`
+	Env    []string         `json:"env"`
+	Models map[string]Model `json:"models"`
+}
+
+type ProviderResponse struct {
+	All       []Provider        `json:"all"`
+	Default   map[string]string `json:"default"`
+	Connected []string          `json:"connected"`
+}
+
+type LiveAgent struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Mode        string            `json:"mode"`
+	BuiltIn     bool              `json:"builtIn"`
+	Color       string            `json:"color,omitempty"`
+	Tools       map[string]bool   `json:"tools"`
+	MaxSteps    int               `json:"maxSteps,omitempty"`
+}
+
+// --- Legacy Provider Definitions (fallback when container is offline) ---
 
 type ProviderDef struct {
 	ID          string   `json:"id"`
@@ -81,7 +142,8 @@ type ProviderDef struct {
 	HasFree     bool     `json:"has_free"`
 }
 
-func GetProviders() []ProviderDef {
+// GetFallbackProviders returns the hardcoded provider list for offline use.
+func GetFallbackProviders() []ProviderDef {
 	return []ProviderDef{
 		{ID: "opencode-zen", Name: "OpenCode Zen", EnvKeys: []string{"OPENCODE_API_KEY"}, Description: "Curated models from the OpenCode team", HasFree: true},
 		{ID: "opencode-go", Name: "OpenCode Go", EnvKeys: []string{"OPENCODE_API_KEY"}, Description: "$5-10/mo subscription for open coding models", HasFree: false},
@@ -105,6 +167,63 @@ func GetProviders() []ProviderDef {
 		{ID: "cloudflare", Name: "Cloudflare AI", EnvKeys: []string{"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_GATEWAY_ID"}, Description: "Unified billing gateway", HasFree: false},
 		{ID: "vercel", Name: "Vercel AI", EnvKeys: []string{"VERCEL_API_KEY"}, Description: "AI gateway at list price", HasFree: false},
 	}
+}
+
+// GetLiveProviders fetches providers and their models from the OpenCode server.
+// Results are cached for 60 seconds.
+func GetLiveProviders() (*ProviderResponse, error) {
+	providerCacheMu.Lock()
+	defer providerCacheMu.Unlock()
+
+	if providerCache != nil && time.Since(providerCacheTime) < providerCacheTTL {
+		return providerCache, nil
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(OverlordURL + "/provider")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result ProviderResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("invalid provider response: %w", err)
+	}
+
+	providerCache = &result
+	providerCacheTime = time.Now()
+	return &result, nil
+}
+
+// InvalidateProviderCache clears the cached provider data so the next
+// call to GetLiveProviders re-fetches from the server.
+func InvalidateProviderCache() {
+	providerCacheMu.Lock()
+	defer providerCacheMu.Unlock()
+	providerCache = nil
+}
+
+// GetLiveAgents fetches agent definitions from the OpenCode server.
+func GetLiveAgents() ([]LiveAgent, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(OverlordURL + "/agent")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var agents []LiveAgent
+	if err := json.Unmarshal(body, &agents); err != nil {
+		return nil, fmt.Errorf("invalid agent response: %w", err)
+	}
+	return agents, nil
 }
 
 // --- Connection Check: GET /session (reliable JSON endpoint) ---
@@ -263,14 +382,24 @@ func CreateSession(title string) (*Session, error) {
 }
 
 // SendPromptAsync sends a user message asynchronously via POST /session/{id}/prompt_async
-// Returns immediately — content streams via SSE events
-func SendPromptAsync(sessionID, message string) error {
+// Returns immediately — content streams via SSE events.
+// model is optional — if non-empty, format is "providerID/modelID".
+func SendPromptAsync(sessionID, message, model string) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 
 	payload := map[string]interface{}{
 		"parts": []map[string]string{
 			{"type": "text", "text": message},
 		},
+	}
+	if model != "" {
+		parts := strings.SplitN(model, "/", 2)
+		if len(parts) == 2 {
+			payload["model"] = map[string]string{
+				"providerID": parts[0],
+				"modelID":    parts[1],
+			}
+		}
 	}
 	payloadBytes, _ := json.Marshal(payload)
 

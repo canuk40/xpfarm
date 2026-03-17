@@ -395,11 +395,20 @@ func StartServer(port string) error {
 		status := overlord.CheckConnection()
 		binaries, _ := overlord.ListBinaries()
 		outputs, _ := overlord.ListOutputs()
+
+		// Get saved model selection
+		activeModel := ""
+		var modelSetting database.Setting
+		if database.GetDB().Where("key = ?", "OVERLORD_MODEL").First(&modelSetting).Error == nil {
+			activeModel = modelSetting.Value
+		}
+
 		c.HTML(http.StatusOK, "overlord_binary.html", getGlobalContext(gin.H{
-			"Page":       "overlord",
-			"Connection": status,
-			"Binaries":   binaries,
-			"Outputs":    outputs,
+			"Page":        "overlord",
+			"Connection":  status,
+			"Binaries":    binaries,
+			"Outputs":     outputs,
+			"ActiveModel": activeModel,
 		}))
 	})
 
@@ -447,12 +456,13 @@ func StartServer(port string) error {
 		sessionID := c.Param("id")
 		var body struct {
 			Message string `json:"message"`
+			Model   string `json:"model"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		err := overlord.SendPromptAsync(sessionID, body.Message)
+		err := overlord.SendPromptAsync(sessionID, body.Message, body.Model)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
@@ -500,6 +510,44 @@ func StartServer(port string) error {
 		c.JSON(http.StatusOK, gin.H{"status": "uploaded", "filename": file.Filename})
 	})
 
+	// Live Provider & Agent APIs
+	r.GET("/api/overlord/providers", func(c *gin.Context) {
+		providers, err := overlord.GetLiveProviders()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, providers)
+	})
+
+	r.GET("/api/overlord/agents", func(c *gin.Context) {
+		agents, err := overlord.GetLiveAgents()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, agents)
+	})
+
+	r.POST("/api/overlord/model", func(c *gin.Context) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		var s database.Setting
+		s.Key = "OVERLORD_MODEL"
+		s.Value = body.Model
+		s.Description = "Selected AI model for Overlord"
+		database.GetDB().Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at", "deleted_at"}),
+		}).Create(&s)
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// AI Provider Settings
 	r.POST("/settings/ai", func(c *gin.Context) {
 		providerID := c.PostForm("active_provider")
@@ -517,9 +565,9 @@ func StartServer(port string) error {
 			}).Create(&s)
 		}
 
-		// Save all provider API keys
+		// Save all provider API keys (use fallback list for form field names)
 		authKeys := make(map[string]string)
-		for _, provider := range overlord.GetProviders() {
+		for _, provider := range overlord.GetFallbackProviders() {
 			for _, envKey := range provider.EnvKeys {
 				val := c.PostForm(envKey)
 				if val != "" {
@@ -550,6 +598,9 @@ func StartServer(port string) error {
 			}
 			overlord.WriteAuthFile(allKeys)
 		}
+
+		// Invalidate provider cache so new auth is picked up
+		overlord.InvalidateProviderCache()
 
 		c.Redirect(http.StatusFound, "/settings?tab=ai")
 	})
@@ -1126,7 +1177,7 @@ func StartServer(port string) error {
 		c.HTML(http.StatusOK, "settings.html", getGlobalContext(gin.H{
 			"Page":           "settings",
 			"Settings":       settings,
-			"Providers":      overlord.GetProviders(),
+			"Providers":      overlord.GetFallbackProviders(),
 			"ActiveProvider": activeProvider,
 		}))
 	})

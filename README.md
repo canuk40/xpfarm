@@ -337,10 +337,7 @@ go build -o xpfarm
 
 ## TODO
 
-- [ ] custom model
-- [x] Architecture map 
-
-### TODO
+- [ ] Custom model
 - [ ] SecretFinder JS
 - [ ] Repo detect/scan
 - [ ] Mobile scan
