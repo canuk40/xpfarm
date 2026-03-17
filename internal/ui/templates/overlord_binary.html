@@ -565,10 +565,11 @@
             const data = await resp.json();
             const connected = data.connected || [];
 
-            // Filter: must be connected AND (enabled by user OR no enabled list saved yet)
+            // Show models from enabled providers (user preference).
+            // If no enabled list saved, fall back to connected providers.
             const hasEnabledList = enabledProvidersList.length > 0;
             const providers = (data.all || []).filter(p =>
-                connected.includes(p.id) && (!hasEnabledList || enabledProvidersList.includes(p.id))
+                hasEnabledList ? enabledProvidersList.includes(p.id) : connected.includes(p.id)
             );
 
             select.innerHTML = '';
