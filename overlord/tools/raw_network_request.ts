@@ -21,7 +21,7 @@ export default tool({
 
             let dataBuffer: Buffer
             if (args.payload_hex) {
-                dataBuffer = Buffer.from(args.payload_hex.replace(/\\s+/g, ''), 'hex')
+                dataBuffer = Buffer.from(args.payload_hex.replace(/\s+/g, ''), 'hex')
             } else {
                 dataBuffer = Buffer.from(args.payload_text || '', 'utf-8')
             }
@@ -39,7 +39,7 @@ export default tool({
                     const responseHex = responseData.toString('hex')
                     let responseAscii = responseData.toString('utf-8')
                     // Simple check if it looks like binary garbage
-                    if (/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/.test(responseAscii)) {
+                    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(responseAscii)) {
                         responseAscii = "[Binary Data - representation hidden. Use response_hex instead]"
                     }
 

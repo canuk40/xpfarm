@@ -27,7 +27,8 @@
     "floss_extract": true,
     "crypto_solver": true,
     "fuzz_concolic": true,
-    "apk_extract_native": true
+    "apk_extract_native": true,
+    "raw_network_request": true
   },
   "mcp": {
     "radare2": {
@@ -42,11 +43,10 @@
     "frida": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
-        "frida-mcp"
+        "bash",
+        "/root/.config/opencode/tools/frida-mcp-wrapper.sh"
       ],
-      "enabled": false
+      "enabled": true
     },
     "semgrep": {
       "type": "local",
@@ -280,6 +280,7 @@
       "tools": {
         "bash": true,
         "frida_hook": true,
+        "apk_analyze": true,
         "r2triage": false,
         "r2analyze": false,
         "r2decompile": false,

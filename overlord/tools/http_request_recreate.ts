@@ -18,7 +18,7 @@ export default tool({
 
                 const fetchOptions: RequestInit = {
                     method: args.method.toUpperCase(),
-                    headers: args.headers || {},
+                    headers: args.headers ? JSON.parse(args.headers) : {},
                     signal: controller.signal
                 }
 

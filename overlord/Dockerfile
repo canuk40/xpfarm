@@ -64,7 +64,7 @@ RUN git clone --depth 1 https://github.com/radareorg/radare2.git && \
 RUN ldconfig
 
 # Install r2ghidra for better decompilation (optional, may fail)
-RUN r2pm -U && r2pm -ci r2ghidra-dec || echo "r2ghidra installation skipped (optional)" && r2pm -ci r2mcp
+RUN r2pm -U && (r2pm -ci r2ghidra-dec || echo "r2ghidra installation skipped (optional)") && r2pm -ci r2mcp
 
 # Install JADX for APK decompilation
 RUN wget -q https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip \
@@ -79,14 +79,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     npm install -g opencode-ai
 
-# Install frida-mcp for MCP server
-RUN npm install -g frida-mcp || echo "frida-mcp installation skipped (optional)"
-
 # Upgrade pip and setuptools first
 RUN pip3 install --upgrade pip setuptools wheel
 
 # Install Python packages for RE, Exploitation, and APK analysis
-RUN pip3 install --no-cache-dir r2pipe capstone unicorn frida-tools angr pwntools ropper pycryptodome flare-floss triton-library
+RUN pip3 install --no-cache-dir r2pipe capstone unicorn frida-tools frida-mcp angr pwntools ropper pycryptodome flare-floss triton-library
 RUN pip3 install --no-cache-dir semgrep || echo "semgrep installation skipped (optional)"
 
 # Create working directory for binaries

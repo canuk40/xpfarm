@@ -34,6 +34,8 @@ services:
       - SYS_PTRACE
     security_opt:
       - seccomp:unconfined
+    environment:
+      - ADB_SERVER_SOCKET=tcp:host.docker.internal:5037
     command: ["opencode", "serve", "--port", "3000", "--hostname", "0.0.0.0"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
