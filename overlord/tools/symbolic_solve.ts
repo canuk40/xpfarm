@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { $ } from "bun"
+import { $ } from "./lib/exec"
 import { writeFileSync, existsSync } from "fs"
 import { instrumentedCall } from "./lib/tool_instrument"
 

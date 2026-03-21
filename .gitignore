@@ -34,6 +34,7 @@ screenshots/
 .screenshots/
 *.txt
 *.py
+!overlord/tools/lib/*.py
 .env
 
 # Overlord

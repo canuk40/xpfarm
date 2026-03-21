@@ -10,6 +10,7 @@ services:
       - ./overlord/binaries:/app/overlord/binaries
       - ./overlord/output:/app/overlord/output
       - ./overlord/auth.json:/app/overlord-auth.json
+      - ./overlord/config/opencode.json:/app/overlord/config/opencode.json
     environment:
       - GIN_MODE=release
       - OVERLORD_URL=http://overlord:3000
@@ -22,6 +23,8 @@ services:
   overlord:
     build: ./overlord
     container_name: overlord
+    tty: true
+    stdin_open: true
     volumes:
       - ./overlord/binaries:/workspace/binaries
       - ./overlord/output:/workspace/output

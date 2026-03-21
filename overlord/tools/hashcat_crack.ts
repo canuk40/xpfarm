@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
-import { $ } from "bun"
+import { $ } from "./lib/exec"
 import path from "path"
 import fs from "fs"
 import { instrumentedCall } from "./lib/tool_instrument"
@@ -52,7 +52,7 @@ export default tool({
 
                 if (args.rules) {
                     const rulePath = args.rules.includes("/") ? args.rules : `/usr/share/hashcat/rules/${args.rules}`
-                    if (existsSync(rulePath)) {
+                    if (fs.existsSync(rulePath)) {
                         baseCmdArgs.push("-r", rulePath)
                     }
                 }
@@ -72,7 +72,7 @@ export default tool({
 
                 // Read cracked results
                 let cracked: string[] = []
-                if (existsSync("/tmp/hashcat_output.txt")) {
+                if (fs.existsSync("/tmp/hashcat_output.txt")) {
                     const output = await Bun.file("/tmp/hashcat_output.txt").text()
                     cracked = output.trim().split("\n").filter(l => l.length > 0)
                     // Clean up

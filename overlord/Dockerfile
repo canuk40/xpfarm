@@ -77,7 +77,8 @@ RUN wget -q https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.z
 # Install Node.js for OpenCode
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
-    npm install -g opencode-ai
+    npm install -g opencode-ai && \
+    cd /usr/lib/node_modules/opencode-ai && npm install opencode-linux-x64
 
 # Upgrade pip and setuptools first
 RUN pip3 install --upgrade pip setuptools wheel
