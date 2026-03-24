@@ -17,10 +17,12 @@ import (
 	"xpfarm/internal/crypto"
 	"xpfarm/internal/database"
 	"xpfarm/internal/modules"
+	"xpfarm/internal/normalization"
 	"xpfarm/internal/notifications/discord"
 	"xpfarm/internal/notifications/telegram"
 	"xpfarm/internal/overlord"
 	"xpfarm/internal/plugin"
+	findingsrepo "xpfarm/internal/storage/findings"
 	"xpfarm/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -1662,6 +1664,82 @@ func StartServer(port string) error {
 			"pipelines": ps,
 			"manifests": plugin.AllManifests(),
 		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Finding Normalization Engine API
+	// -------------------------------------------------------------------------
+
+	// POST /api/normalize — normalize raw scanner output into canonical findings.
+	// Body: {"source": "nuclei", "raw": { ... }}
+	r.POST("/api/normalize", func(c *gin.Context) {
+		var body struct {
+			Source string         `json:"source" binding:"required"`
+			Raw    map[string]any `json:"raw"    binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		nFindings, groups, err := normalization.Run(body.Source, body.Raw)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		db := database.GetDB()
+		var saveErrors []string
+		for _, f := range nFindings {
+			if err := findingsrepo.SaveFinding(db, f); err != nil {
+				saveErrors = append(saveErrors, err.Error())
+			}
+		}
+		for _, g := range groups {
+			if err := findingsrepo.SaveGroup(db, g); err != nil {
+				saveErrors = append(saveErrors, err.Error())
+			}
+		}
+		resp := gin.H{"findings": nFindings, "groups": groups, "count": len(nFindings)}
+		if len(saveErrors) > 0 {
+			resp["save_errors"] = saveErrors
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	// GET /api/findings — list normalized findings.
+	// Query params: source, severity, cwe, cve, target, kev
+	r.GET("/api/findings", func(c *gin.Context) {
+		filters := make(map[string]string)
+		for _, key := range []string{"source", "severity", "cwe", "cve", "target", "kev"} {
+			if v := c.Query(key); v != "" {
+				filters[key] = v
+			}
+		}
+		list, err := findingsrepo.ListFindings(database.GetDB(), filters)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"findings": list, "count": len(list)})
+	})
+
+	// GET /api/findings/:id — fetch a single finding by ID.
+	r.GET("/api/findings/:id", func(c *gin.Context) {
+		f, err := findingsrepo.GetFindingByID(database.GetDB(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, f)
+	})
+
+	// GET /api/groups — list finding groups with their member findings.
+	r.GET("/api/groups", func(c *gin.Context) {
+		groups, err := findingsrepo.ListGroups(database.GetDB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"groups": groups, "count": len(groups)})
 	})
 
 	// SSE endpoint: real-time scan stage progress for the dashboard

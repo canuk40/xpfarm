@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"xpfarm/internal/crypto"
+	"xpfarm/internal/storage/findings"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -59,10 +60,15 @@ func InitDB(debug bool) {
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
 
-	// Migrate the schema
+	// Migrate the schema — core tables
 	err = DB.AutoMigrate(&Asset{}, &Target{}, &ScanResult{}, &Setting{}, &Port{}, &WebAsset{}, &Vulnerability{}, &CVE{}, &SavedSearch{}, &NucleiTemplate{}, &ScanProfile{})
 	if err != nil {
 		log.Fatal("failed to migrate database:", err)
+	}
+
+	// Migrate the normalized findings tables
+	if err := findings.Migrate(DB); err != nil {
+		log.Fatal("failed to migrate findings tables:", err)
 	}
 
 	// Seed default searches if none exist

@@ -12,7 +12,8 @@ import (
 	"xpfarm/internal/ui"
 	"xpfarm/pkg/utils"
 
-	_ "xpfarm/plugins/all" // compile-in all plugins via init()
+	_ "xpfarm/internal/normalization/all" // register all adapters + enrichers
+	_ "xpfarm/plugins/all"               // compile-in all plugins via init()
 
 	"github.com/gin-gonic/gin"
 )
