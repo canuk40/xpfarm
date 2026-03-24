@@ -1,0 +1,491 @@
+{{template "layout" .}}
+
+{{define "title"}}Scan Planner — XPFarm{{end}}
+
+{{define "content"}}
+<style>
+.planner-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 20px;
+    height: calc(100vh - 120px);
+}
+.panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+.panel-header h3 { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.panel-body { padding: 20px; overflow-y: auto; flex: 1; }
+.form-group { margin-bottom: 16px; }
+.form-group label {
+    display: block; font-size: 0.78rem; font-weight: 600;
+    color: var(--color-text-muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
+.form-control {
+    width: 100%; background: var(--bg-body); border: 1px solid var(--border-color);
+    border-radius: 8px; color: var(--color-text-primary); padding: 8px 12px;
+    font-size: 0.875rem; box-sizing: border-box; transition: border-color 0.2s;
+}
+.form-control:focus { outline: none; border-color: var(--color-primary); }
+.asset-checkboxes { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
+.asset-checkbox { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; cursor: pointer; }
+.asset-checkbox input { accent-color: var(--color-primary); }
+.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mode-btn {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-color);
+    background: var(--bg-body); color: var(--color-text-muted); font-size: 0.8rem;
+    cursor: pointer; transition: all 0.2s; text-align: center; user-select: none;
+}
+.mode-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 600; }
+.mode-btn .mode-label { font-weight: 600; font-size: 0.85rem; }
+.mode-btn .mode-desc { font-size: 0.7rem; opacity: 0.7; margin-top: 2px; }
+.row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-primary {
+    width: 100%; padding: 10px; background: var(--color-primary); color: #fff;
+    border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s;
+}
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-execute {
+    padding: 7px 16px; background: #16a34a; color: #fff; border: none;
+    border-radius: 8px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    transition: opacity 0.2s;
+}
+.btn-execute:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-sm {
+    padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border-color);
+    background: var(--bg-body); color: var(--color-text-primary); font-size: 0.78rem;
+    cursor: pointer; transition: all 0.2s;
+}
+.btn-sm:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.btn-sm.danger:hover { border-color: #ef4444; color: #ef4444; }
+.plan-history { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
+.plan-item {
+    background: var(--bg-body); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color 0.2s;
+}
+.plan-item:hover, .plan-item.selected { border-color: var(--color-primary); }
+.plan-item-id { font-size: 0.75rem; color: var(--color-text-muted); font-family: monospace; }
+.plan-item-meta { font-size: 0.75rem; color: var(--color-text-muted); display: flex; gap: 8px; margin-top: 3px; }
+.badge-mode {
+    padding: 2px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+}
+.badge-mode.recon { background: #1e3a5f; color: #60a5fa; }
+.badge-mode.web { background: #2a1a0e; color: #fb923c; }
+.badge-mode.binary { background: #1a2a1a; color: #4ade80; }
+.badge-mode.full { background: #2d1b69; color: #a78bfa; }
+.badge-mode.safe { background: #14532d; color: #86efac; }
+.badge-status {
+    padding: 2px 7px; border-radius: 10px; font-size: 0.7rem; font-weight: 600;
+}
+.badge-status.pending { background: #1f2937; color: #9ca3af; }
+.badge-status.executing { background: #1e3a5f; color: #60a5fa; }
+.badge-status.done { background: #14532d; color: #86efac; }
+.badge-status.failed { background: #450a0a; color: #f87171; }
+
+/* Steps viewer */
+.steps-container { display: flex; flex-direction: column; gap: 10px; padding: 16px; flex: 1; overflow-y: auto; }
+.step-card {
+    background: var(--bg-body); border: 1px solid var(--border-color);
+    border-radius: 10px; padding: 14px 16px; transition: border-color 0.2s;
+}
+.step-card.running { border-color: #3b82f6; }
+.step-card.done { border-color: #16a34a; }
+.step-card.failed { border-color: #ef4444; }
+.step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.step-id { font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace; }
+.step-agent { font-size: 0.75rem; font-weight: 600; color: var(--color-primary); }
+.step-tool {
+    font-size: 0.78rem; font-weight: 600; color: var(--color-text-primary);
+    background: var(--bg-card); padding: 2px 7px; border-radius: 5px; border: 1px solid var(--border-color);
+}
+.step-target { font-size: 0.78rem; color: var(--color-text-muted); font-family: monospace; }
+.step-reason { font-size: 0.8rem; color: var(--color-text-muted); font-style: italic; margin-top: 4px; }
+.step-output {
+    margin-top: 10px; font-family: monospace; font-size: 0.75rem; background: var(--bg-card);
+    border-radius: 6px; padding: 10px; max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+    border: 1px solid var(--border-color); color: var(--color-text-primary);
+}
+.step-spinner {
+    display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(96,165,250,0.3);
+    border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Log console */
+.log-console {
+    background: #0a0a0a; border-top: 1px solid var(--border-color);
+    font-family: monospace; font-size: 0.75rem; color: #d1fae5;
+    padding: 10px 14px; max-height: 180px; overflow-y: auto; flex-shrink: 0;
+}
+.log-line { line-height: 1.6; }
+.log-line.err { color: #fca5a5; }
+
+/* Empty state */
+.empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: var(--color-text-muted); gap: 12px; text-align: center;
+}
+.spinner-lg {
+    width: 28px; height: 28px; border: 3px solid rgba(139,92,246,0.2);
+    border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+</style>
+
+<div class="page-header">
+    <h2 class="page-title">AI Scan Planner</h2>
+    <p class="page-subtitle">Overlord selects the optimal recon &amp; exploitation steps for your targets</p>
+</div>
+
+<div class="planner-grid">
+    <!-- Left: Config panel -->
+    <div class="panel">
+        <div class="panel-header"><h3>Plan Configuration</h3></div>
+        <div class="panel-body">
+            <div class="form-group">
+                <label>Assets</label>
+                <div class="asset-checkboxes" id="assetList">
+                    <span style="color:var(--color-text-muted);font-size:0.8rem;">Loading...</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Mode</label>
+                <div class="mode-grid">
+                    <div class="mode-btn active" data-mode="full" onclick="selectMode(this)">
+                        <div class="mode-label">Full</div>
+                        <div class="mode-desc">All tools</div>
+                    </div>
+                    <div class="mode-btn" data-mode="recon" onclick="selectMode(this)">
+                        <div class="mode-label">Recon</div>
+                        <div class="mode-desc">Passive only</div>
+                    </div>
+                    <div class="mode-btn" data-mode="web" onclick="selectMode(this)">
+                        <div class="mode-label">Web</div>
+                        <div class="mode-desc">Web testing</div>
+                    </div>
+                    <div class="mode-btn" data-mode="binary" onclick="selectMode(this)">
+                        <div class="mode-label">Binary</div>
+                        <div class="mode-desc">RE / APK</div>
+                    </div>
+                    <div class="mode-btn" data-mode="safe" onclick="selectMode(this)" style="grid-column:span 2;">
+                        <div class="mode-label">Safe</div>
+                        <div class="mode-desc">No destructive tools, no active scanning</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row-inputs">
+                <div class="form-group">
+                    <label>Max Steps</label>
+                    <input type="number" id="maxSteps" class="form-control" value="8" min="1" max="20">
+                </div>
+                <div class="form-group">
+                    <label>Max Depth</label>
+                    <input type="number" id="maxDepth" class="form-control" value="3" min="1" max="10">
+                </div>
+            </div>
+
+            <button class="btn-primary" id="btnGenerate" onclick="generatePlan()">
+                Generate Plan
+            </button>
+
+            <!-- History -->
+            <div style="margin-top:24px;border-top:1px solid var(--border-color);padding-top:16px;">
+                <div style="font-size:0.78rem;font-weight:600;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Saved Plans</div>
+                <div class="plan-history" id="planHistory">
+                    <span style="color:var(--color-text-muted);font-size:0.8rem;">No plans yet.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Plan viewer -->
+    <div class="panel" id="planPanel">
+        <div class="panel-header">
+            <h3 id="planTitle">Plan Viewer</h3>
+            <div id="planToolbar" style="display:none;gap:8px;align-items:center;display:none;">
+                <button class="btn-execute" id="btnExecute" onclick="executePlan()">▶ Execute Plan</button>
+                <button class="btn-sm danger" onclick="deletePlan()">🗑 Delete</button>
+            </div>
+        </div>
+
+        <div id="planEmpty" class="empty-state">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                <polyline points="9 11 12 14 22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <div>Configure options and click Generate Plan</div>
+            <div style="font-size:0.8rem;">Overlord will choose the best steps for your targets</div>
+        </div>
+
+        <div id="planContent" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+            <div class="steps-container" id="stepsContainer"></div>
+            <div class="log-console" id="logConsole" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedMode = 'full';
+let selectedPlanID = null;
+let currentPlan = null;
+let executing = false;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadAssets();
+    loadHistory();
+});
+
+function selectMode(el) {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    selectedMode = el.dataset.mode;
+}
+
+async function loadAssets() {
+    const res = await fetch('/api/assets');
+    const data = await res.json();
+    const list = document.getElementById('assetList');
+    if (!data.assets || data.assets.length === 0) {
+        list.innerHTML = '<span style="color:var(--color-text-muted);font-size:0.8rem;">No assets found.</span>';
+        return;
+    }
+    list.innerHTML = data.assets.map(a => `
+        <label class="asset-checkbox">
+            <input type="checkbox" value="${a.id}" name="assetID"> ${escH(a.name)}
+        </label>
+    `).join('');
+}
+
+async function loadHistory() {
+    const res = await fetch('/api/planner/plans');
+    const data = await res.json();
+    const container = document.getElementById('planHistory');
+    if (!data.plans || data.plans.length === 0) {
+        container.innerHTML = '<span style="color:var(--color-text-muted);font-size:0.8rem;">No plans yet.</span>';
+        return;
+    }
+    container.innerHTML = data.plans.map(p => `
+        <div class="plan-item" id="pi-${p.id}" onclick="loadPlan('${p.id}')">
+            <div class="plan-item-id">${p.id.slice(0,16)}…</div>
+            <div class="plan-item-meta">
+                <span class="badge-mode ${p.mode}">${p.mode}</span>
+                <span class="badge-status ${p.status}">${p.status}</span>
+                <span>${new Date(p.created_at).toLocaleDateString()}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function generatePlan() {
+    const checked = Array.from(document.querySelectorAll('input[name="assetID"]:checked'));
+    if (checked.length === 0) { alert('Select at least one asset.'); return; }
+    const assetIDs = checked.map(cb => parseInt(cb.value));
+    const maxSteps = parseInt(document.getElementById('maxSteps').value) || 8;
+    const maxDepth = parseInt(document.getElementById('maxDepth').value) || 3;
+
+    const btn = document.getElementById('btnGenerate');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    showLoading('Asking Overlord to build your scan plan…');
+
+    try {
+        const res = await fetch('/api/planner/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ asset_ids: assetIDs, mode: selectedMode, max_steps: maxSteps, max_depth: maxDepth }),
+        });
+        const plan = await res.json();
+        if (!res.ok) { showError(plan.error || 'Generation failed'); return; }
+        currentPlan = plan;
+        selectedPlanID = plan.id;
+        renderPlan(plan);
+        await loadHistory();
+        highlightHistoryItem(plan.id);
+    } catch(e) {
+        showError(e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate Plan';
+    }
+}
+
+async function loadPlan(id) {
+    selectedPlanID = id;
+    highlightHistoryItem(id);
+    const res = await fetch('/api/planner/plans/' + id);
+    const rec = await res.json();
+    if (!res.ok) { showError('Failed to load plan'); return; }
+    let steps = [];
+    try { steps = JSON.parse(rec.steps_json || '[]'); } catch(_) {}
+    currentPlan = { id: rec.id, mode: rec.mode, status: rec.status, steps };
+    renderPlan(currentPlan);
+}
+
+function renderPlan(plan) {
+    document.getElementById('planEmpty').style.display = 'none';
+    const pc = document.getElementById('planContent');
+    pc.style.display = 'flex';
+
+    const toolbar = document.getElementById('planToolbar');
+    toolbar.style.display = 'flex';
+
+    const btnExec = document.getElementById('btnExecute');
+    btnExec.disabled = executing || plan.status === 'executing' || plan.status === 'done';
+
+    document.getElementById('planTitle').textContent =
+        `Plan: ${plan.mode.toUpperCase()} — ${(plan.steps || []).length} steps`;
+
+    document.getElementById('logConsole').style.display = 'none';
+    document.getElementById('logConsole').innerHTML = '';
+
+    const container = document.getElementById('stepsContainer');
+    container.innerHTML = (plan.steps || []).map((s, i) => `
+        <div class="step-card ${s.status || ''}" id="sc-${s.step_id || i}">
+            <div class="step-header">
+                <span class="step-id">${s.step_id || '#' + (i+1)}</span>
+                <span class="step-agent">${s.agent}</span>
+                <span class="step-tool">${s.tool}</span>
+                ${statusIcon(s.status)}
+            </div>
+            <div class="step-target">→ ${escH(s.target)}</div>
+            <div class="step-reason">${escH(s.reason || '')}</div>
+            ${s.output ? `<div class="step-output">${escH(s.output.slice(0, 2000))}${s.output.length > 2000 ? '\n… (truncated)' : ''}</div>` : ''}
+            ${s.error ? `<div class="step-output" style="color:#f87171;">${escH(s.error)}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+function statusIcon(status) {
+    if (status === 'running') return '<span class="step-spinner"></span>';
+    if (status === 'done') return '<span style="color:#4ade80;font-size:0.85rem;">✓</span>';
+    if (status === 'failed') return '<span style="color:#f87171;font-size:0.85rem;">✗</span>';
+    return '';
+}
+
+async function executePlan() {
+    if (!selectedPlanID) return;
+    executing = true;
+    document.getElementById('btnExecute').disabled = true;
+
+    const console_ = document.getElementById('logConsole');
+    console_.style.display = 'block';
+    console_.innerHTML = '<div class="log-line">Starting execution…</div>';
+
+    const res = await fetch('/api/planner/execute/' + selectedPlanID, { method: 'POST' });
+    if (!res.ok) {
+        const err = await res.json();
+        appendLog('ERROR: ' + (err.error || 'Failed to start'), true);
+        executing = false;
+        return;
+    }
+
+    // SSE log stream
+    const es = new EventSource('/api/planner/execute/' + selectedPlanID + '/logs');
+    es.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data.done) {
+                appendLog('✓ Execution complete.');
+                es.close();
+                executing = false;
+                loadPlan(selectedPlanID);
+                loadHistory();
+                return;
+            }
+            if (data.error) {
+                appendLog('ERROR: ' + data.error, true);
+                return;
+            }
+            appendLog(data.msg || '');
+            // Update step card status
+            if (data.step_id) {
+                const card = document.getElementById('sc-' + data.step_id);
+                if (card) {
+                    card.classList.remove('pending', 'done', 'failed');
+                    card.classList.add('running');
+                    const hdr = card.querySelector('.step-header');
+                    if (hdr && !hdr.querySelector('.step-spinner')) {
+                        hdr.insertAdjacentHTML('beforeend', '<span class="step-spinner"></span>');
+                    }
+                }
+            }
+        } catch(_) {}
+    };
+    es.onerror = () => {
+        appendLog('Connection lost.', true);
+        es.close();
+        executing = false;
+        loadPlan(selectedPlanID);
+    };
+}
+
+function appendLog(msg, isErr) {
+    const c = document.getElementById('logConsole');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (isErr ? ' err' : '');
+    line.textContent = msg;
+    c.appendChild(line);
+    c.scrollTop = c.scrollHeight;
+}
+
+async function deletePlan() {
+    if (!selectedPlanID) return;
+    if (!confirm('Delete this plan?')) return;
+    await fetch('/api/planner/plans/' + selectedPlanID, { method: 'DELETE' });
+    selectedPlanID = null;
+    currentPlan = null;
+    document.getElementById('planEmpty').style.display = 'flex';
+    document.getElementById('planContent').style.display = 'none';
+    document.getElementById('planToolbar').style.display = 'none';
+    document.getElementById('planTitle').textContent = 'Plan Viewer';
+    loadHistory();
+}
+
+function showLoading(msg) {
+    document.getElementById('planEmpty').style.display = 'flex';
+    document.getElementById('planEmpty').innerHTML = `
+        <div class="spinner-lg"></div>
+        <div>${escH(msg)}</div>
+        <div style="font-size:0.8rem;color:var(--color-text-muted);">May take up to 3 minutes if Overlord is planning</div>
+    `;
+    document.getElementById('planContent').style.display = 'none';
+    document.getElementById('planToolbar').style.display = 'none';
+}
+
+function showError(msg) {
+    document.getElementById('planEmpty').style.display = 'flex';
+    document.getElementById('planEmpty').innerHTML = `
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <div style="color:#ef4444;">Error</div>
+        <div style="font-size:0.8rem;color:var(--color-text-muted);max-width:280px;">${escH(msg)}</div>
+    `;
+}
+
+function highlightHistoryItem(id) {
+    document.querySelectorAll('.plan-item').forEach(el => el.classList.remove('selected'));
+    const el = document.getElementById('pi-' + id);
+    if (el) el.classList.add('selected');
+}
+
+function escH(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{{end}}

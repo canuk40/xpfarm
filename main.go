@@ -12,6 +12,7 @@ import (
 	"xpfarm/internal/ui"
 	graphstore "xpfarm/internal/storage/graph"
 	reportstore "xpfarm/internal/storage/reports"
+	planstore "xpfarm/internal/storage/plans"
 	"xpfarm/pkg/utils"
 
 	_ "xpfarm/internal/normalization/all" // register all adapters + enrichers
@@ -58,6 +59,9 @@ ____  ________________________
 	}
 	if err := reportstore.Migrate(database.GetDB()); err != nil {
 		log.Fatalf("failed to migrate report tables: %v", err)
+	}
+	if err := planstore.Migrate(database.GetDB()); err != nil {
+		log.Fatalf("failed to migrate plan tables: %v", err)
 	}
 
 	// 2. Register built-in modules

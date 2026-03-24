@@ -33,6 +33,8 @@ import (
 	"xpfarm/internal/reports/exporter"
 	reportstore "xpfarm/internal/storage/reports"
 	repostore "xpfarm/internal/storage/repos"
+	"xpfarm/internal/planner"
+	planstore "xpfarm/internal/storage/plans"
 	"xpfarm/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -2216,6 +2218,223 @@ func StartServer(port string) error {
 	// DELETE /api/reports/:id — delete a report.
 	r.DELETE("/api/reports/:id", func(c *gin.Context) {
 		if err := reportstore.DeleteReport(database.GetDB(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	})
+
+	// -------------------------------------------------------------------------
+	// Scan Plan Optimizer
+	// -------------------------------------------------------------------------
+
+	// activePlanLogs holds log channels for currently executing plans.
+	// Key = plan ID, value = channel of StepLog. Channel is closed when done.
+	type planLogEntry struct {
+		ch   chan planner.StepLog
+		plan *planner.ScanPlan
+	}
+	var (
+		planLogsMu sync.Mutex
+		planLogMap = map[string]*planLogEntry{}
+	)
+
+	// GET /planner — serve the scan plan optimizer UI page.
+	r.GET("/planner", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "planner.html", getGlobalContext(gin.H{"Page": "planner"}))
+	})
+
+	// POST /api/planner/generate — generate a new AI scan plan.
+	r.POST("/api/planner/generate", func(c *gin.Context) {
+		var req planner.PlannerRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+			return
+		}
+		if len(req.AssetIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one asset_id is required"})
+			return
+		}
+
+		plan, err := planner.GenerateScanPlan(c.Request.Context(), database.GetDB(), req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Persist
+		stepsJSON, _ := planstore.MarshalSteps(plan.Steps)
+		if saveErr := planstore.SavePlan(database.GetDB(), planstore.PlanRecord{
+			ID:        plan.ID,
+			AssetIDs:  planstore.MarshalAssetIDs(plan.AssetIDs),
+			Mode:      string(plan.Mode),
+			StepsJSON: stepsJSON,
+			Status:    string(plan.Status),
+			CreatedAt: plan.CreatedAt,
+			UpdatedAt: plan.UpdatedAt,
+		}); saveErr != nil {
+			utils.LogError("planstore: save failed: %v", saveErr)
+		}
+
+		c.JSON(http.StatusOK, plan)
+	})
+
+	// GET /api/planner/plans — list all saved plans.
+	r.GET("/api/planner/plans", func(c *gin.Context) {
+		recs, err := planstore.ListPlans(database.GetDB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		type planSummary struct {
+			ID        string    `json:"id"`
+			Mode      string    `json:"mode"`
+			Status    string    `json:"status"`
+			CreatedAt time.Time `json:"created_at"`
+		}
+		out := make([]planSummary, len(recs))
+		for i, r := range recs {
+			out[i] = planSummary{ID: r.ID, Mode: r.Mode, Status: r.Status, CreatedAt: r.CreatedAt}
+		}
+		c.JSON(http.StatusOK, gin.H{"plans": out})
+	})
+
+	// GET /api/planner/plans/:id — fetch a single plan with full step detail.
+	r.GET("/api/planner/plans/:id", func(c *gin.Context) {
+		rec, err := planstore.GetPlan(database.GetDB(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "plan not found"})
+			return
+		}
+		c.JSON(http.StatusOK, rec)
+	})
+
+	// POST /api/planner/execute/:id — start executing a plan asynchronously.
+	// Returns 202 immediately; client streams logs via SSE at /api/planner/execute/:id/logs.
+	r.POST("/api/planner/execute/:id", func(c *gin.Context) {
+		id := c.Param("id")
+
+		planLogsMu.Lock()
+		if _, running := planLogMap[id]; running {
+			planLogsMu.Unlock()
+			c.JSON(http.StatusConflict, gin.H{"error": "plan is already executing"})
+			return
+		}
+		planLogsMu.Unlock()
+
+		rec, err := planstore.GetPlan(database.GetDB(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "plan not found"})
+			return
+		}
+
+		// Decode steps from JSON
+		var steps []planner.PlanStep
+		if err := json.Unmarshal([]byte(rec.StepsJSON), &steps); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not decode plan steps"})
+			return
+		}
+
+		plan := &planner.ScanPlan{
+			ID:       rec.ID,
+			Mode:     planner.Mode(rec.Mode),
+			Steps:    steps,
+			Status:   planner.StatusExecuting,
+		}
+
+		logCh := make(chan planner.StepLog, 500)
+		entry := &planLogEntry{ch: logCh, plan: plan}
+		planLogsMu.Lock()
+		planLogMap[id] = entry
+		planLogsMu.Unlock()
+
+		go func() {
+			defer func() {
+				close(logCh)
+				planLogsMu.Lock()
+				delete(planLogMap, id)
+				planLogsMu.Unlock()
+			}()
+
+			execErr := planner.ExecutePlanWithLogs(context.Background(), database.GetDB(), plan, logCh)
+
+			// Persist updated steps
+			stepsJSON, _ := planstore.MarshalSteps(plan.Steps)
+			status := string(planner.StatusDone)
+			errStr := ""
+			if execErr != nil {
+				status = string(planner.StatusFailed)
+				errStr = execErr.Error()
+			}
+			planstore.SavePlan(database.GetDB(), planstore.PlanRecord{
+				ID:        rec.ID,
+				AssetIDs:  rec.AssetIDs,
+				Mode:      rec.Mode,
+				StepsJSON: stepsJSON,
+				Status:    status,
+				Error:     errStr,
+				CreatedAt: rec.CreatedAt,
+				UpdatedAt: time.Now().UTC(),
+			})
+		}()
+
+		c.JSON(http.StatusAccepted, gin.H{"status": "executing", "plan_id": id})
+	})
+
+	// GET /api/planner/execute/:id/logs — SSE stream of execution log lines.
+	r.GET("/api/planner/execute/:id/logs", func(c *gin.Context) {
+		id := c.Param("id")
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+
+		flusher, ok := c.Writer.(http.Flusher)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
+			return
+		}
+
+		// Wait briefly for the execution goroutine to register the channel
+		var entry *planLogEntry
+		for i := 0; i < 10; i++ {
+			planLogsMu.Lock()
+			entry = planLogMap[id]
+			planLogsMu.Unlock()
+			if entry != nil {
+				break
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+
+		if entry == nil {
+			fmt.Fprintf(c.Writer, "data: {\"error\":\"plan %s is not executing\"}\n\n", id)
+			flusher.Flush()
+			return
+		}
+
+		ctx := c.Request.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case log, open := <-entry.ch:
+				if !open {
+					fmt.Fprintf(c.Writer, "data: {\"done\":true}\n\n")
+					flusher.Flush()
+					return
+				}
+				msg := strings.ReplaceAll(log.Message, "\n", " ")
+				fmt.Fprintf(c.Writer, "data: {\"step_id\":%q,\"msg\":%q}\n\n", log.StepID, msg)
+				flusher.Flush()
+			}
+		}
+	})
+
+	// DELETE /api/planner/plans/:id — delete a saved plan.
+	r.DELETE("/api/planner/plans/:id", func(c *gin.Context) {
+		if err := planstore.DeletePlan(database.GetDB(), c.Param("id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
