@@ -1,7 +1,7 @@
 # XPFarm
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/canuk40)
-An open-source vulnerability scanner that wraps well-known open-source security tools behind a single web UI.
 
+An open-source vulnerability scanner that wraps well-known open-source security tools behind a single web UI.
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/canuk40)
 ---
 
 ### Index
