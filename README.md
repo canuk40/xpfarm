@@ -2,6 +2,7 @@
 
 An open-source vulnerability scanner that wraps well-known open-source security tools behind a single web UI.
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/canuk40)
+if you love this project, check out my other project ObsidianBox Modern or download it from google play: https://play.google.com/store/apps/details?id=com.busyboxmodern.app&hl=en_CA
 ---
 
 ### Index
