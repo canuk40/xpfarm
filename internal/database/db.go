@@ -6,6 +6,7 @@ import (
 
 	"xpfarm/internal/crypto"
 	"xpfarm/internal/storage/findings"
+	repostore "xpfarm/internal/storage/repos"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -69,6 +70,11 @@ func InitDB(debug bool) {
 	// Migrate the normalized findings tables
 	if err := findings.Migrate(DB); err != nil {
 		log.Fatal("failed to migrate findings tables:", err)
+	}
+
+	// Migrate the repository scanner tables
+	if err := repostore.Migrate(DB); err != nil {
+		log.Fatal("failed to migrate repo scanner tables:", err)
 	}
 
 	// Seed default searches if none exist

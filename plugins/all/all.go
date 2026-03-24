@@ -12,4 +12,6 @@ package all
 import (
 	_ "xpfarm/plugins/example-echo"
 	_ "xpfarm/plugins/example-repo-scanner"
+	_ "xpfarm/plugins/repo-secrets"
+	_ "xpfarm/plugins/repo-semgrep"
 )

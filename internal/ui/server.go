@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"embed"
 	"encoding/csv"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"xpfarm/internal/core"
@@ -23,6 +25,9 @@ import (
 	"xpfarm/internal/overlord"
 	"xpfarm/internal/plugin"
 	findingsrepo "xpfarm/internal/storage/findings"
+	repo_scanner "xpfarm/internal/repo_scanner"
+	"xpfarm/internal/repos"
+	repostore "xpfarm/internal/storage/repos"
 	"xpfarm/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -1740,6 +1745,106 @@ func StartServer(port string) error {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"groups": groups, "count": len(groups)})
+	})
+
+	// -------------------------------------------------------------------------
+	// Repo Scanner API
+	// -------------------------------------------------------------------------
+
+	// POST /api/repos/add — register a new Git repository target.
+	// Body: {"url": "https://github.com/...", "branch": "main"}
+	r.POST("/api/repos/add", func(c *gin.Context) {
+		var req struct {
+			URL    string `json:"url" binding:"required"`
+			Branch string `json:"branch"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Branch == "" {
+			req.Branch = "main"
+		}
+		target := repos.RepoTarget{
+			ID:     repos.NewID(),
+			URL:    req.URL,
+			Branch: req.Branch,
+		}
+		if err := repostore.SaveRepoTarget(database.GetDB(), target); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, target)
+	})
+
+	// GET /api/repos — list all tracked repositories.
+	r.GET("/api/repos", func(c *gin.Context) {
+		targets, err := repostore.ListRepoTargets(database.GetDB())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"repos": targets, "count": len(targets)})
+	})
+
+	// DELETE /api/repos/:id — remove a repository and all its scan data.
+	r.DELETE("/api/repos/:id", func(c *gin.Context) {
+		if err := repostore.DeleteRepoTarget(database.GetDB(), c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	})
+
+	// repoScanMu serializes concurrent scan-trigger calls to the same repo.
+	var repoScanMu sync.Mutex
+
+	// POST /api/repos/scan/:id — trigger an async repo scan.
+	// Returns 202 immediately; client polls /api/repos/:id/findings.
+	r.POST("/api/repos/scan/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		target, err := repostore.GetRepoTarget(database.GetDB(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "repo not found"})
+			return
+		}
+		go func() {
+			repoScanMu.Lock()
+			defer repoScanMu.Unlock()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+			defer cancel()
+			if _, err := repo_scanner.ScanRepo(ctx, database.GetDB(), target); err != nil {
+				utils.LogDebug("[repo_scanner] scan failed for %s: %v", target.URL, err)
+			}
+		}()
+		c.JSON(http.StatusAccepted, gin.H{"status": "scan started", "repo_id": id})
+	})
+
+	// GET /api/repos/:id/findings — list findings for a specific repository.
+	// Query params: source, severity, cwe, cve, kev
+	r.GET("/api/repos/:id/findings", func(c *gin.Context) {
+		filters := make(map[string]string)
+		for _, key := range []string{"source", "severity", "cwe", "cve", "kev"} {
+			if v := c.Query(key); v != "" {
+				filters[key] = v
+			}
+		}
+		findings, err := repostore.ListRepoFindings(database.GetDB(), c.Param("id"), filters)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"findings": findings, "count": len(findings)})
+	})
+
+	// GET /api/repos/:id/sbom — return the latest SBOM for a repository.
+	r.GET("/api/repos/:id/sbom", func(c *gin.Context) {
+		s, err := repostore.GetLatestSBOM(database.GetDB(), c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no SBOM found for this repo"})
+			return
+		}
+		c.JSON(http.StatusOK, s)
 	})
 
 	// SSE endpoint: real-time scan stage progress for the dashboard

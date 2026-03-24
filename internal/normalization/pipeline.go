@@ -16,6 +16,26 @@ import (
 	"xpfarm/pkg/utils"
 )
 
+// EnrichAll applies every registered Enricher to a slice of findings that were
+// created directly (not via an adapter). It also generates fingerprints and
+// deduplicates. No grouping is performed — call normalization.Run when you have
+// raw scanner output and want the full pipeline including grouping.
+func EnrichAll(findings []model.Finding) []model.Finding {
+	if len(findings) == 0 {
+		return findings
+	}
+	enrichers := GetEnrichers()
+	for i := range findings {
+		for _, e := range enrichers {
+			if err := e.Enrich(&findings[i]); err != nil {
+				utils.LogDebug("[normalization] enricher %q on finding %s: %v", e.Name(), findings[i].ID, err)
+			}
+		}
+		findings[i].Fingerprint = dedupe.GenerateFingerprint(findings[i])
+	}
+	return dedupe.Deduplicate(findings)
+}
+
 // Run executes the full normalization pipeline for a single scanner output.
 //
 //  1. Dispatches raw to the registered Adapter for source.

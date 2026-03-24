@@ -1,0 +1,8 @@
+name: repo-secrets
+version: 1.0.0
+author: xpfarm
+description: Secret scanning plugin. Runs Gitleaks (if installed) and the built-in Go SecretFinder against a local repository path. Returns normalized credential and secret findings.
+tools:
+  - secrets-scanner
+agents:
+  - secrets-agent

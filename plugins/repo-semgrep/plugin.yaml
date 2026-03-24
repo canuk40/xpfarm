@@ -1,0 +1,8 @@
+name: repo-semgrep
+version: 1.0.0
+author: xpfarm
+description: SAST scanner plugin. Runs Semgrep with the auto ruleset against a local repository path and returns normalized security findings.
+tools:
+  - semgrep-scanner
+agents:
+  - semgrep-agent
