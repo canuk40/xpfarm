@@ -19,6 +19,37 @@
 11. [All Source Material](#all-source-material)
 
 ---
+## Implementation Progress
+
+| Item | Status | Commit |
+|---|---|---|
+| QW1: EPSS Score Enrichment | ✅ Done | 99f4f92 |
+| QW2: VulnCheck KEV | ✅ Done | 99f4f92 |
+| QW3: GreyNoise IP Filtering | ✅ Done | 99f4f92 |
+| QW4: Screenshot Vision Analysis | ✅ Done | 99f4f92 |
+| #3: Compound Risk Scoring | ✅ Done | 99f4f92 |
+| #9: Vision Analysis | ✅ Done | 99f4f92 |
+| #2: Passive Enrichment (GreyNoise) | ✅ Partial | 99f4f92 |
+| QW5: CISA KEV Nuclei Targeting | 🔄 In Progress | — |
+| QW6: OSV.dev Dependency Vulns | 🔄 In Progress | — |
+| QW8: LLM Auto-Report | 🔄 In Progress | — |
+| #1: LLM False-Positive Triage | 🔄 In Progress | — |
+| #4: MCP Server | 🔄 In Progress | — |
+| #15: Executive Report Generation | 🔄 In Progress | — |
+| #2: Shodan InternetDB passive recon | ⏳ Pending | — |
+| #5: ReAct Agent Loop | ⏳ Pending | — |
+| #6: AI Nuclei Template Generation | ⏳ Pending | — |
+| #7: Attack Graph Visualization | ⏳ Pending (graph pkg exists) | — |
+| #10: Exploit Chain Discovery | ⏳ Pending | — |
+| #12: Chat Interface | ⏳ Pending | — |
+| #13: CVE Semantic Embeddings | ⏳ Pending | — |
+| #14: Authenticated Scanning | ⏳ Pending | — |
+| MS1: Autonomous Agent Loop | ⏳ Moonshot | — |
+| MS2: Distributed Scan Mesh | ⏳ Moonshot | — |
+| MS3: Vuln Reproduction Sandbox | ⏳ Moonshot | — |
+| MS4: BloodHound External Graph | ⏳ Moonshot | — |
+| MS5: AI Co-Pilot with Memory | ⏳ Moonshot | — |
+
 
 ## Executive Summary
 
@@ -88,7 +119,7 @@ Before Naabu fires a single SYN packet, query passive data sources. `uncover` hi
 
 ---
 
-### #1 — LLM False-Positive Triage Layer for Nuclei Output
+### #1 — LLM False-Positive Triage Layer for Nuclei Output — **NEXT**
 
 **What:**
 After Nuclei runs, pipe every finding through an LLM (Claude/GPT-4o) with:
@@ -118,7 +149,7 @@ Nuclei's false-positive rate on template-heavy scans can exceed 30%. Semgrep ach
 
 ---
 
-### #2 — Passive Intelligence Pre-Enrichment (uncover + GreyNoise + Shodan InternetDB)
+### ~~#2 — Passive Intelligence Pre-Enrichment (GreyNoise)~~ ✅ PARTIAL — GreyNoise DONE; Shodan InternetDB + uncover remaining
 
 **What:**
 Before any active scanning, run a Stage 0 that:
@@ -153,7 +184,7 @@ Naabu SYN scanning against large CIDRs is noisy and slow. Passive data makes act
 
 ---
 
-### #3 — EPSS + VulnCheck KEV Vulnerability Prioritization Engine
+### ~~#3 — EPSS + VulnCheck KEV Vulnerability Prioritization Engine~~ ✅ DONE (commit 99f4f92)
 
 **What:**
 Replace CVEMap as the CVE enrichment source with a compound scoring system:
@@ -197,7 +228,7 @@ CVSS 9.8 vulnerabilities that nobody exploits waste analyst time. CVEs in top EP
 
 ---
 
-### #4 — MCP Server: Expose XPFarm's Tools to Any AI Agent
+### #4 — MCP Server: Expose XPFarm's Tools to Any AI Agent — **NEXT**
 
 **What:**
 Expose XPFarm's 10 tool modules as MCP (Model Context Protocol) tools so any MCP-compatible AI agent (Claude Desktop, Cursor, any LLM with MCP support) can invoke Subfinder, Nuclei, Httpx, etc. through XPFarm's unified interface. Also build a built-in MCP client so XPFarm's own Overlord AI calls its tools without HTTP round-trips.
@@ -407,7 +438,7 @@ Current XPFarm: if process dies mid-scan (OOM, SIGKILL), entire scan is lost. En
 
 ---
 
-### #9 — Screenshot Intelligence via Vision Model Analysis
+### ~~#9 — Screenshot Intelligence via Vision Model Analysis~~ ✅ DONE (commit 99f4f92)
 
 **What:**
 After Gowitness captures screenshots, pass each PNG to GPT-4o vision or Claude Vision API with a security-focused prompt. Extract structured annotations:
@@ -685,7 +716,7 @@ These have the highest impact-to-effort ratio. Do these first.
 
 ---
 
-### QW1: EPSS Score Enrichment (1 day)
+### ~~QW1: EPSS Score Enrichment~~ ✅ DONE (commit 99f4f92)
 
 **What:** Call `https://api.first.org/data/1.0/epss?cve=CVE-XXXX-XXXX` for every CVE found in Stage 7. Zero cost, no API key required. Sort findings by `cvss * epss_score`.
 
@@ -720,7 +751,7 @@ func FetchEPSS(cveID string) (float64, float64, error) {
 
 ---
 
-### QW2: VulnCheck KEV Integration (1 day)
+### ~~QW2: VulnCheck KEV Integration~~ ✅ DONE (commit 99f4f92)
 
 **What:** Tag each CVE with `in_kev: true/false` using VulnCheck's free community API. Show red "KEV" badge in findings UI.
 
@@ -734,7 +765,7 @@ func FetchEPSS(cveID string) (float64, float64, error) {
 
 ---
 
-### QW3: GreyNoise IP Noise Filtering (1–2 days)
+### ~~QW3: GreyNoise IP Noise Filtering~~ ✅ DONE (commit 99f4f92)
 
 **What:** Before Stage 1, classify all target IPs via GreyNoise. Skip IPs tagged `riot: true` (legitimate business services like AWS health checks that flood scan results). De-prioritize `classification: "benign"` (known scanner bots).
 
@@ -746,7 +777,7 @@ func FetchEPSS(cveID string) (float64, float64, error) {
 
 ---
 
-### QW4: Screenshot Vision Analysis (2 days)
+### ~~QW4: Screenshot Vision Analysis~~ ✅ DONE (commit 99f4f92)
 
 **What:** Batch all WebAsset screenshots through GPT-4o vision. Identify admin panels, login pages, exposed data. Add tag filter UI.
 
@@ -755,7 +786,7 @@ func FetchEPSS(cveID string) (float64, float64, error) {
 
 ---
 
-### QW5: CISA KEV + EPSS Nuclei Template Targeting (1 day)
+### QW5: CISA KEV + EPSS Nuclei Template Targeting (1 day) — **NEXT**
 
 **What:** Download CISA KEV JSON feed daily (`https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json`). In Stage 8, automatically add Nuclei templates for any KEV CVEs found by CVEMap. This makes the "smart template plan engine" actually smart about actively-exploited CVEs.
 
