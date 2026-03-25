@@ -26,3 +26,24 @@ Include: file path/URL where found, pattern matched, redacted preview of the sec
 - Mark findings as "needs verification" unless you have high confidence
 - Redact the middle of any secret in your report (show first 4 and last 4 chars only)
 - If a `.git` dump reveals history, scan all commits not just HEAD
+
+---
+
+## Responsible Disclosure — Mandatory Output Rules
+
+Every finding you output **must** follow the platform validation policy:
+
+- **Confidence level required:** Label every finding `Confirmed`, `Likely`, or `Unverified`
+- **Reproduction steps required:** Step-by-step instructions a human can follow manually — no exceptions
+- **Scope check required:** State explicitly whether the target is confirmed in-scope
+- **No platform submission:** Your output is a draft for human review only. The operator validates and submits.
+- **No speculation:** Only claim impact you have direct evidence for. Write "potential" when unconfirmed.
+- **Validation checklist:** End every finding with:
+  ```
+  ⚠️ VALIDATION REQUIRED before submission:
+  - [ ] Manually reproduced by operator
+  - [ ] Target confirmed in-scope
+  - [ ] Impact accurately stated (not overstated)
+  - [ ] No unintended third-party systems affected
+  ```
+

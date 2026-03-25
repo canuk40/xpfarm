@@ -219,6 +219,10 @@ func GenerateReport(
 		}
 	}
 
+	// Prepend mandatory validation disclaimer — enforced server-side regardless
+	// of which AI provider or generation path was used.
+	content = responsibleDisclosureDisclaimer(data.Title) + "\n\n" + content
+
 	return &Report{
 		ID:        newID(),
 		Format:    req.Format,
@@ -227,6 +231,31 @@ func GenerateReport(
 		Status:    StatusReady,
 		CreatedAt: time.Now().UTC(),
 	}, nil
+}
+
+// responsibleDisclosureDisclaimer returns a hard-coded validation block that is
+// prepended to every generated report regardless of AI provider or template used.
+// This cannot be removed or overridden by prompt engineering or model output.
+func responsibleDisclosureDisclaimer(title string) string {
+	return fmt.Sprintf(`> ⚠️ **OPERATOR VALIDATION REQUIRED — DO NOT SUBMIT WITHOUT COMPLETING THIS CHECKLIST**
+>
+> This report was generated with AI assistance and automated scanning tools. Under bug bounty platform
+> Codes of Conduct (Bugcrowd, HackerOne, Intigriti, and others), AI-assisted findings **must be manually
+> reviewed and verified** prior to submission. Unvalidated reports are subject to rejection and may
+> result in account suspension.
+>
+> **Before submitting "%s" to any platform, confirm each item below:**
+>
+> - [ ] Every finding has been **manually reproduced** from a clean session
+> - [ ] Reproduction steps work as written and produce the stated outcome
+> - [ ] Each target is **confirmed in-scope** on the current program policy page
+> - [ ] Impact is accurately stated — not extrapolated beyond what was observed
+> - [ ] No unintended third-party infrastructure was affected during testing
+> - [ ] Severity ratings reflect actual exploitability, not theoretical worst-case
+> - [ ] All evidence (requests, responses, screenshots) is current and unaltered
+>
+> *Submitting this report to a platform constitutes the operator's confirmation that all items above
+> are satisfied. XPFarm and its contributors bear no responsibility for rejected or disputed reports.*`, title)
 }
 
 // renderWithBuiltinTemplate renders the appropriate built-in Markdown template.
