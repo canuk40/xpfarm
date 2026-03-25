@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#1a1a2e" stroke="#ff3355" stroke-width="4"/>
+  <!-- Power ring (gap at top) -->
+  <path d="M 64 18 A 46 46 0 1 1 63.99 18" fill="none" stroke="#ff3355" stroke-width="10" stroke-linecap="round"
+        stroke-dasharray="240 50" stroke-dashoffset="-25"/>
+  <!-- Power stem -->
+  <line x1="64" y1="18" x2="64" y2="52" stroke="#ff3355" stroke-width="10" stroke-linecap="round"/>
+  <!-- OFF label -->
+  <text x="64" y="100" text-anchor="middle" font-family="monospace" font-size="18" font-weight="bold" fill="#ff3355">OFF</text>
+</svg>

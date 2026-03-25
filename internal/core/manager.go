@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,37 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// adaptiveWorkerCount returns a worker pool size scaled to available CPU capacity.
+// On Linux it reads /proc/loadavg; if the 1-min load exceeds 70 % of logical CPUs
+// the count is halved. Otherwise it is min(numCPU, 5), floored at 2.
+func adaptiveWorkerCount() int {
+	cpus := runtime.NumCPU()
+	// Try to read 1-min load average (Linux only).
+	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) > 0 {
+			if load, parseErr := strconv.ParseFloat(fields[0], 64); parseErr == nil {
+				if load > float64(cpus)*0.7 {
+					n := cpus / 2
+					if n < 2 {
+						n = 2
+					}
+					utils.LogDebug("[Manager] High system load (%.1f), reducing workers to %d", load, n)
+					return n
+				}
+			}
+		}
+	}
+	n := cpus
+	if n > 5 {
+		n = 5
+	}
+	if n < 2 {
+		n = 2
+	}
+	return n
+}
 
 // ScanManager handles scan execution and cancellation
 type ScanInfo struct {
@@ -150,12 +183,15 @@ func (sm *ScanManager) StartScan(targetInput string, assetName string) {
 		onStartFn(targetInput)
 	}
 	sm.broadcastProgress(targetInput, assetName, "start", "", 0)
+	Audit("scan_start", targetInput, assetName, "", 0, "", "")
 
 	// Run in background
 	go func() {
+		scanStart := time.Now()
 		defer func() {
 			if r := recover(); r != nil {
 				utils.LogError("[Manager] Scan panic recovered for %s: %v", targetInput, r)
+				Audit("scan_error", targetInput, assetName, "", time.Since(scanStart).Milliseconds(), fmt.Sprintf("panic: %v", r), "")
 			}
 			sm.mu.Lock()
 			delete(sm.activeScans, targetInput)
@@ -167,6 +203,7 @@ func (sm *ScanManager) StartScan(targetInput string, assetName string) {
 				onStopFn(targetInput, cancelled)
 			}
 			sm.broadcastProgress(targetInput, assetName, "done", "", 0)
+			Audit("scan_done", targetInput, assetName, "", time.Since(scanStart).Milliseconds(), "", "")
 		}()
 		sm.runScanLogic(ctx, targetInput, assetName)
 	}()
@@ -455,6 +492,37 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 		}(subTarget)
 	}
 
+	// For CIDR targets, supplement subdomain discovery with SSDP/mDNS local probes.
+	// Subfinder doesn't handle CIDRs, so this fills the discovery gap.
+	if parsed.Type == TargetTypeCIDR {
+		utils.LogInfo("[Scanner] CIDR target — running SSDP/mDNS local network discovery")
+		discovered := LocalNetworkDiscover(2 * time.Second)
+		utils.LogInfo("[Scanner] SSDP/mDNS discovered %d local hosts", len(discovered))
+		for _, host := range discovered {
+			if ctx.Err() != nil {
+				break
+			}
+			subTarget := database.Target{
+				AssetID:  asset.ID,
+				ParentID: &targetObj.ID,
+				Value:    host.IP,
+				Type:     "ip",
+				IsAlive:  true,
+				Status:   "up",
+			}
+			if err := db.Where(database.Target{Value: host.IP, AssetID: asset.ID}).FirstOrCreate(&subTarget).Error; err != nil {
+				utils.LogDebug("[Scanner] Error saving discovered host %s: %v", host.IP, err)
+				continue
+			}
+			producerWG.Add(1)
+			go func(t database.Target) {
+				defer producerWG.Done()
+				targetsChan <- t
+			}(subTarget)
+			utils.LogSuccess("[Scanner] Enqueued %s-discovered host: %s", host.Source, host.IP)
+		}
+	}
+
 	// Channel Closer
 	go func() {
 		producerWG.Wait()
@@ -462,7 +530,7 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 	}()
 
 	// === CONSUMER (Worker Pool — Naabu + downstream stages) ===
-	const maxWorkers = 5
+	maxWorkers := adaptiveWorkerCount()
 	naabuMod := modules.Get("naabu")
 
 	if naabuMod != nil && naabuMod.CheckInstalled() {
@@ -480,6 +548,14 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 					if _, loaded := scannedTargets.LoadOrStore(t.ID, true); loaded {
 						continue
 					}
+
+					// --- Checkpoint: skip targets already fully processed in a prior run ---
+					if LoadCheckpoint(t.AssetID, t.Value) >= CheckpointStageWorkers {
+						utils.LogInfo("[Scanner] Skipping %s — checkpoint shows prior run completed all stages", t.Value)
+						Audit("target_skip", t.Value, assetName, "", 0, "", "checkpoint resume")
+						continue
+					}
+					targetStart := time.Now()
 
 					sm.broadcastProgress(t.Value, assetName, "stage", "port-scan", 3)
 					var output string
@@ -836,17 +912,27 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 
 					if profile.EnableVulnScan {
 						sm.broadcastProgress(t.Value, assetName, "stage", "cve-lookup", 7)
+						Audit("stage_start", t.Value, assetName, "cve-lookup", 0, "", "")
 						// --- STAGE 7: CVE Lookup via Cvemap (Per-Worker/Per-Target) ---
 						if profile.EnableCvemap {
+							t0cve := time.Now()
 							sm.runCvemapScan(ctx, db, t)
+							Audit("stage_done", t.Value, assetName, "cve-lookup", time.Since(t0cve).Milliseconds(), "", "")
 						}
 
 						sm.broadcastProgress(t.Value, assetName, "stage", "vuln-scan", 8)
-						// --- STAGE 8: Nuclei Vulnerability Scanning (Per-Port) ---
+						Audit("stage_start", t.Value, assetName, "vuln-scan", 0, "", "")
+						// --- STAGE 8: Nuclei with quarantine timeout ---
 						if profile.EnableNuclei {
-							sm.runNucleiScan(ctx, db, t)
+							sm.runNucleiWithQuarantine(ctx, db, t, assetName)
 						}
 					}
+
+					// --- Checkpoint: mark this target fully processed ---
+					SaveCheckpoint(t.AssetID, t.Value, CheckpointStageWorkers)
+					// --- Full multi-dimensional score update (Entity fitness model) ---
+					ComputeFullScore(db, &t)
+					Audit("target_done", t.Value, assetName, "", time.Since(targetStart).Milliseconds(), "", "")
 				}
 			}()
 		}
@@ -1305,6 +1391,96 @@ func (sm *ScanManager) parseAndStoreNucleiResults(db *gorm.DB, targetID uint, ou
 		utils.LogDebug("[Scanner] [Nuclei] %d malformed JSONL lines skipped for target %d", skipped, targetID)
 	}
 	return count
+}
+
+// nucleiQuarantineTimeout is the max time allowed for a full Nuclei scan on one target.
+// If exceeded, the scan is cancelled and retried with auto-scan only (reduced scope).
+const nucleiQuarantineTimeout = 45 * time.Minute
+
+// runNucleiWithQuarantine wraps runNucleiScan with a hard timeout.
+// On timeout (quarantine): logs the event, then retries with a lightweight auto-scan.
+// Inspired by Entity/QueenCore's quarantine + rehabilitation pattern.
+func (sm *ScanManager) runNucleiWithQuarantine(parentCtx context.Context, db *gorm.DB, targetObj database.Target, assetName string) {
+	nucleiCtx, cancel := context.WithTimeout(parentCtx, nucleiQuarantineTimeout)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sm.runNucleiScan(nucleiCtx, db, targetObj)
+	}()
+
+	select {
+	case <-done:
+		// Normal completion.
+		Audit("stage_done", targetObj.Value, assetName, "vuln-scan", 0, "", "")
+
+	case <-nucleiCtx.Done():
+		if parentCtx.Err() != nil {
+			// Parent was cancelled — no quarantine, just propagate.
+			return
+		}
+		// Timeout hit — quarantine and retry with reduced scope.
+		utils.LogWarning("[Scanner] [Nuclei] Quarantine: scan exceeded %v for %s — retrying with auto-scan only", nucleiQuarantineTimeout, targetObj.Value)
+		Audit("stage_quarantined", targetObj.Value, assetName, "vuln-scan", nucleiQuarantineTimeout.Milliseconds(), "timeout", fmt.Sprintf("exceeded %v, retrying auto-scan", nucleiQuarantineTimeout))
+
+		// Wait for the timed-out goroutine to exit before starting retry.
+		<-done
+
+		sm.runNucleiAutoScanOnly(parentCtx, db, targetObj, assetName)
+	}
+}
+
+// runNucleiAutoScanOnly is the reduced-scope retry: runs Nuclei's -as (automatic scan)
+// against web URLs only — no per-port tag scans, no workflow files.
+func (sm *ScanManager) runNucleiAutoScanOnly(ctx context.Context, db *gorm.DB, targetObj database.Target, assetName string) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	nucleiMod := modules.Get("nuclei")
+	nm, ok := nucleiMod.(*modules.Nuclei)
+	if !ok || !nm.CheckInstalled() {
+		return
+	}
+
+	var webAssets []database.WebAsset
+	db.Where("target_id = ?", targetObj.ID).Find(&webAssets)
+	if len(webAssets) == 0 {
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "nuclei-retry-*.txt")
+	if err != nil {
+		utils.LogError("[Scanner] [Nuclei] Retry: failed to create temp file for %s: %v", targetObj.Value, err)
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	for _, wa := range webAssets {
+		if wa.URL != "" {
+			fmt.Fprintln(tmpFile, wa.URL)
+		}
+	}
+	tmpFile.Close()
+
+	utils.LogInfo("[Scanner] [Nuclei] Quarantine retry: auto-scan on %d URLs for %s", len(webAssets), targetObj.Value)
+	t0 := time.Now()
+	output, err := nm.RunAutoScan(ctx, tmpPath)
+	if output != "" {
+		recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("Quarantine retry auto-scan\n%s", output))
+	}
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+		utils.LogDebug("[Scanner] [Nuclei] Quarantine retry error for %s: %v", targetObj.Value, err)
+	}
+	count := sm.parseAndStoreNucleiResults(db, targetObj.ID, output)
+	if count > 0 {
+		utils.LogSuccess("[Scanner] [Nuclei] Quarantine retry found %d findings for %s", count, targetObj.Value)
+	}
+	Audit("stage_retry", targetObj.Value, assetName, "vuln-scan", time.Since(t0).Milliseconds(), errStr, fmt.Sprintf("auto-scan found %d findings", count))
 }
 
 // recordResult saves raw tool output to the database with retry on failure

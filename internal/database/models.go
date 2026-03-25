@@ -32,6 +32,7 @@ type Target struct {
 	IsLocalhost  bool            `gorm:"index:idx_target_localhost" json:"is_localhost"`
 	IsAlive      bool            `gorm:"index:idx_target_alive;default:true" json:"is_alive"`
 	Status       string          `json:"status"` // "up", "down", "unreachable"
+	Score        float64         `gorm:"default:0" json:"score"` // Attack surface score (see core.ComputeTargetScore)
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt  `gorm:"index" json:"-"`
