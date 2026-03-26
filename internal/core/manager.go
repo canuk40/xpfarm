@@ -578,6 +578,9 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 					}
 					targetStart := time.Now()
 
+					// Passive pre-enrichment: Shodan InternetDB (before active Naabu scan)
+					enrichment.EnrichTargetWithInternetDB(db, t.ID, t.Value)
+
 					sm.broadcastProgress(t.Value, assetName, "stage", "port-scan", 3)
 					var output string
 					var err error
@@ -936,6 +939,9 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 						}
 					}
 
+					// === STAGE 5.5: OSV.dev open-source dependency vulnerability check ===
+					enrichment.EnrichWithOSV(db, t.ID)
+
 					if profile.EnableVulnScan {
 						sm.broadcastProgress(t.Value, assetName, "stage", "cve-lookup", 7)
 						Audit("stage_start", t.Value, assetName, "cve-lookup", 0, "", "")
@@ -1263,8 +1269,28 @@ func (sm *ScanManager) runNucleiScan(ctx context.Context, db *gorm.DB, targetObj
 	}
 
 	// DEFAULT MODE: Use the existing tag-based scan plan
-	plan := BuildNucleiPlan(targetObj.Value, ports, webAssets)
 	totalFindings := 0
+
+	// --- QW5: KEV / High-EPSS Priority Templates (run before general plan) ---
+	if priorityPaths := enrichment.BuildKEVPriorityTemplates(db, targetObj.ID); len(priorityPaths) > 0 {
+		for _, tmplPath := range priorityPaths {
+			if ctx.Err() != nil {
+				break
+			}
+			for _, wa := range webAssets {
+				if wa.URL == "" {
+					continue
+				}
+				output, _ := nm.RunRaw(ctx, []string{"-u", wa.URL, "-t", tmplPath, "-jsonl", "-silent"})
+				if output != "" {
+					recordResult(db, targetObj.ID, "nuclei", fmt.Sprintf("KEV-priority [%s] %s\n%s", tmplPath, wa.URL, output))
+					totalFindings += sm.parseAndStoreNucleiResults(db, targetObj.ID, output)
+				}
+			}
+		}
+	}
+
+	plan := BuildNucleiPlan(targetObj.Value, ports, webAssets)
 
 	// --- Per-Port Network Scans ---
 	for _, scan := range plan.NetworkScans {
