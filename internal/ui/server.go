@@ -245,7 +245,7 @@ func StartServer(port string) error {
 		return err
 	}
 
-	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "overlord_binary.html", "search.html", "advanced_scan.html", "scan_settings.html", "reports.html", "planner.html", "workers.html", "graph.html", "asset.html", "index.html", "repos.html", "nuclei.html", "schedules.html", "history.html", "findings.html", "login.html"}
+	pages := []string{"dashboard.html", "assets.html", "asset_details.html", "target_details.html", "modules.html", "settings.html", "target.html", "overlord.html", "overlord_binary.html", "search.html", "advanced_scan.html", "scan_settings.html", "reports.html", "planner.html", "workers.html", "graph.html", "asset.html", "index.html", "repos.html", "nuclei.html", "schedules.html", "history.html", "findings.html", "login.html", "chat.html"}
 
 	for _, page := range pages {
 		pageContent, err := f.ReadFile("templates/" + page)
@@ -2579,6 +2579,26 @@ func StartServer(port string) error {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	})
+
+	// -------------------------------------------------------------------------
+	// Chat Interface (#12) — Natural language scan control
+	// -------------------------------------------------------------------------
+
+	r.GET("/chat", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "chat.html", getGlobalContext(gin.H{"Page": "chat"}))
+	})
+
+	r.POST("/api/chat", func(c *gin.Context) {
+		var req struct {
+			Message string `json:"message"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Message == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "message required"})
+			return
+		}
+		reply, action := handleChatMessage(database.GetDB(), req.Message)
+		c.JSON(http.StatusOK, gin.H{"reply": reply, "action": action})
 	})
 
 	// -------------------------------------------------------------------------

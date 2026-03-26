@@ -39,10 +39,10 @@
 | #15: Executive Report Generation | ✅ Done (wired into QW8) | current |
 | #2: Shodan (full via InternetDB) | ✅ Done | fb28748 |
 | #5: ReAct Agent Loop | ⏳ Pending | — |
-| #6: AI Nuclei Template Generation | ⏳ Pending | — |
+| #6: AI Nuclei Template Generation | ✅ Done | current |
 | #7: Attack Graph Visualization | ⏳ Pending (graph pkg exists) | — |
 | #10: Exploit Chain Discovery | ⏳ Pending | — |
-| #12: Chat Interface | ⏳ Pending | — |
+| #12: Chat Interface | ✅ Done | current |
 | #13: CVE Semantic Embeddings | ⏳ Pending | — |
 | #14: Authenticated Scanning | ⏳ Pending | — |
 | MS1: Autonomous Agent Loop | ⏳ Moonshot | — |

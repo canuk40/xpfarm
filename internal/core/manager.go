@@ -961,6 +961,9 @@ func (sm *ScanManager) runScanLogic(ctx context.Context, targetInput string, ass
 							enrichment.EnrichCVEsWithVulnCheckKEV(db, t.ID)
 						}
 
+						// --- STAGE 7.8: AI Template Generation for uncovered CVEs ---
+						enrichment.GenerateMissingNucleiTemplates(db, t.ID)
+
 						sm.broadcastProgress(t.Value, assetName, "stage", "vuln-scan", 8)
 						Audit("stage_start", t.Value, assetName, "vuln-scan", 0, "", "")
 						// --- STAGE 8: Nuclei with quarantine timeout ---

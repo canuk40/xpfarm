@@ -1,0 +1,101 @@
+{{define "title"}}AI Chat — XPFarm{{end}}
+{{define "content"}}
+<style>
+.chat-wrap { display: flex; flex-direction: column; height: calc(100vh - 120px); max-width: 800px; margin: 0 auto; }
+.chat-header { margin-bottom: 16px; }
+.chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.msg { max-width: 80%; padding: 10px 14px; border-radius: 10px; font-size: 0.875rem; line-height: 1.5; }
+.msg.user { align-self: flex-end; background: var(--color-primary); color: #fff; border-bottom-right-radius: 2px; }
+.msg.assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border-color); border-bottom-left-radius: 2px; }
+.msg.assistant a { color: var(--color-primary); }
+.chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color); margin-top: 8px; }
+.chat-input-row input { flex: 1; padding: 10px 14px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--color-text); font-size: 0.875rem; }
+.chat-input-row input:focus { outline: none; border-color: var(--color-primary); }
+.chat-send-btn { padding: 10px 18px; background: var(--color-primary); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
+.chat-send-btn:hover { opacity: 0.9; }
+.chat-send-btn:disabled { opacity: 0.5; cursor: default; }
+.typing-indicator { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 14px; font-size: 0.85rem; color: var(--color-muted); }
+.action-chip { display: inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 12px; background: rgba(99,102,241,0.15); color: var(--color-primary); font-size: 0.75rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(99,102,241,0.3); text-decoration: none; }
+.action-chip:hover { background: rgba(99,102,241,0.3); }
+</style>
+
+<div class="chat-wrap">
+    <div class="chat-header">
+        <h2 class="page-title" style="margin:0;">AI Assistant</h2>
+        <p class="page-subtitle" style="margin:4px 0 0;">Natural language control — start scans, query findings, navigate XPFarm</p>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        <div class="msg assistant">
+            👋 Hi! I'm your XPFarm assistant. Try saying:<br>
+            <code>scan example.com</code> • <code>show critical findings</code> • <code>how many CVEs do I have?</code>
+        </div>
+    </div>
+
+    <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Type a message... (Enter to send)" autofocus>
+        <button class="chat-send-btn" id="chat-send-btn" onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+const messagesEl = document.getElementById('chat-messages');
+const inputEl = document.getElementById('chat-input');
+const sendBtn = document.getElementById('chat-send-btn');
+
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+function appendMsg(role, html) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.innerHTML = html;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+}
+
+function markdownToHTML(text) {
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+}
+
+async function sendMessage() {
+    const msg = inputEl.value.trim();
+    if (!msg) return;
+    inputEl.value = '';
+    sendBtn.disabled = true;
+
+    appendMsg('user', escapeHTML(msg));
+    const typing = appendMsg('typing-indicator', '...');
+
+    try {
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: msg})
+        });
+        const data = await res.json();
+        typing.remove();
+
+        let html = markdownToHTML(data.reply || 'Done.');
+        if (data.action && data.action.type === 'navigate' && data.action.url) {
+            html += `<br><a class="action-chip" href="${data.action.url}">→ View</a>`;
+        } else if (data.action && data.action.type === 'start_scan') {
+            html += `<br><a class="action-chip" href="/">→ Dashboard</a>`;
+        }
+        appendMsg('assistant', html);
+    } catch(e) {
+        typing.remove();
+        appendMsg('assistant', 'Error contacting server. Please try again.');
+    }
+    sendBtn.disabled = false;
+    inputEl.focus();
+}
+
+function escapeHTML(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{{end}}
